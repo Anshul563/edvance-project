@@ -15,7 +15,10 @@ type Server struct {
 }
 
 func New(cfg config.Config) (*Server, error) {
-	handler := router.New()
+	handler, err := router.New(cfg)
+	if err != nil {
+		return nil, err
+	}
 
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),

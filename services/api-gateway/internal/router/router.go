@@ -5,10 +5,11 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/Anshul563/edvance-project/services/api-gateway/internal/config"
 	"github.com/Anshul563/edvance-project/services/api-gateway/internal/middleware"
 )
 
-func New() http.Handler {
+func New(cfg config.Config) (http.Handler, error) {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
@@ -19,7 +20,11 @@ func New() http.Handler {
 	r.Get("/health", healthHandler)
 	r.Get("/ready", readyHandler)
 
-	return r
+	if err := registerServiceRoutes(r, cfg); err != nil {
+		return nil, err
+	}
+
+	return r, nil
 }
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {
