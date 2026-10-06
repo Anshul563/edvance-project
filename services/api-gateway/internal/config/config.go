@@ -8,6 +8,21 @@ import (
 type Config struct {
 	AppEnv string
 	Port   int
+
+	Services ServicesConfig
+}
+
+type ServicesConfig struct {
+	AuthURL     string
+	UserURL     string
+	CreatorURL  string
+	ContentURL  string
+	VideoURL    string
+	CourseURL   string
+	LearningURL string
+	SocialURL   string
+	CommerceURL string
+	PaymentURL  string
 }
 
 func Load() Config {
@@ -22,6 +37,19 @@ func Load() Config {
 	return Config{
 		AppEnv: getEnv("APP_ENV", "development"),
 		Port:   port,
+
+		Services: ServicesConfig{
+			AuthURL:     getEnv("AUTH_SERVICE_URL", "http://localhost:8081"),
+			UserURL:     getEnv("USER_SERVICE_URL", "http://localhost:8082"),
+			CreatorURL:  getEnv("CREATOR_SERVICE_URL", "http://localhost:8083"),
+			ContentURL:  getEnv("CONTENT_SERVICE_URL", "http://localhost:8084"),
+			VideoURL:    getEnv("VIDEO_SERVICE_URL", "http://localhost:8085"),
+			CourseURL:   getEnv("COURSE_SERVICE_URL", "http://localhost:8086"),
+			LearningURL: getEnv("LEARNING_SERVICE_URL", "http://localhost:8087"),
+			SocialURL:   getEnv("SOCIAL_SERVICE_URL", "http://localhost:8088"),
+			CommerceURL: getEnv("COMMERCE_SERVICE_URL", "http://localhost:8089"),
+			PaymentURL:  getEnv("PAYMENT_SERVICE_URL", "http://localhost:8090"),
+		},
 	}
 }
 

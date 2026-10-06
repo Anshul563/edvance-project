@@ -18,7 +18,11 @@ func main() {
 	slog.SetDefault(logger)
 
 	cfg := config.Load()
-	srv := server.New(cfg)
+	srv, err := server.New(cfg)
+	if err != nil {
+		slog.Error("failed to create server", "error", err)
+		os.Exit(1)
+	}
 
 	serverErr := make(chan error, 1)
 

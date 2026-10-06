@@ -14,7 +14,7 @@ type Server struct {
 	httpServer *http.Server
 }
 
-func New(cfg config.Config) *Server {
+func New(cfg config.Config) (*Server, error) {
 	handler := router.New()
 
 	httpServer := &http.Server{
@@ -28,7 +28,7 @@ func New(cfg config.Config) *Server {
 
 	return &Server{
 		httpServer: httpServer,
-	}
+	}, nil
 }
 
 func (s *Server) Start() error {
