@@ -15,6 +15,7 @@ type Config struct {
 	Database DatabaseConfig
 	Redis    RedisConfig
 	Auth     AuthConfig
+	Email    EmailConfig
 }
 
 type DatabaseConfig struct {
@@ -31,6 +32,19 @@ type AuthConfig struct {
 	JWTAudience     string
 	AccessTokenTTL  time.Duration
 	RefreshTokenTTL time.Duration
+}
+
+type EmailConfig struct {
+	Provider        string
+	From            string
+	VerificationURL string
+	TokenTTL        time.Duration
+	ResendCooldown  time.Duration
+
+	SMTPHost     string
+	SMTPPort     int
+	SMTPUsername string
+	SMTPPassword string
 }
 
 func Load() (Config, error) {
@@ -53,6 +67,27 @@ func Load() (Config, error) {
 	refreshTTL, err := getEnvDuration("REFRESH_TOKEN_TTL", 720*time.Hour)
 	if err != nil {
 		return Config{}, err
+	}
+
+	emailTokenTTL, err := getEnvDuration("EMAIL_VERIFICATION_TTL", 24*time.Hour)
+	if err != nil {
+		return Config{}, err
+	}
+
+	resendCooldown, err := getEnvDuration("EMAIL_RESEND_COOLDOWN", time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
+
+	smtpPort := 587
+
+	if value := os.Getenv("SMTP_PORT"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return Config{}, fmt.Errorf("invalid SMTP_PORT: %w", err)
+		}
+
+		smtpPort = parsed
 	}
 
 	cfg := Config{
@@ -80,6 +115,19 @@ func Load() (Config, error) {
 			AccessTokenTTL:  accessTTL,
 			RefreshTokenTTL: refreshTTL,
 		},
+
+		Email: EmailConfig{
+			Provider:        getEnv("EMAIL_PROVIDER", "console"),
+			From:            getEnv("EMAIL_FROM", "no-reply@edvance.local"),
+			VerificationURL: getEnv("EMAIL_VERIFICATION_URL", "http://localhost:3000/verify-email"),
+			TokenTTL:        emailTokenTTL,
+			ResendCooldown:  resendCooldown,
+
+			SMTPHost:     os.Getenv("SMTP_HOST"),
+			SMTPPort:     smtpPort,
+			SMTPUsername: os.Getenv("SMTP_USERNAME"),
+			SMTPPassword: os.Getenv("SMTP_PASSWORD"),
+		},
 	}
 
 	if cfg.Auth.JWTAccessSecret == "" {
@@ -96,7 +144,63 @@ func Load() (Config, error) {
 		return Config{}, errors.New("REFRESH_TOKEN_TTL must be positive")
 	}
 
+	if err := validateEmailConfig(cfg); err != nil {
+		return Config{}, err
+	}
+
 	return cfg, nil
+}
+
+func validateEmailConfig(cfg Config) error {
+	switch cfg.Email.Provider {
+	case "console":
+		// Console mode prints live verification URLs to the log. It
+		// exists for local development only.
+		if cfg.AppEnv == "production" {
+			return errors.New(
+				"EMAIL_PROVIDER=console is not allowed in production",
+			)
+		}
+
+	case "smtp":
+		if cfg.Email.SMTPHost == "" {
+			return errors.New("SMTP_HOST is required")
+		}
+
+		if cfg.Email.SMTPPort <= 0 {
+			return errors.New("SMTP_PORT must be positive")
+		}
+
+		if cfg.Email.SMTPUsername == "" || cfg.Email.SMTPPassword == "" {
+			return errors.New(
+				"SMTP_USERNAME and SMTP_PASSWORD are required",
+			)
+		}
+
+		if cfg.Email.From == "" {
+			return errors.New("EMAIL_FROM is required")
+		}
+
+	default:
+		return fmt.Errorf(
+			"unsupported EMAIL_PROVIDER: %s",
+			cfg.Email.Provider,
+		)
+	}
+
+	if cfg.Email.VerificationURL == "" {
+		return errors.New("EMAIL_VERIFICATION_URL is required")
+	}
+
+	if cfg.Email.TokenTTL <= 0 {
+		return errors.New("EMAIL_VERIFICATION_TTL must be positive")
+	}
+
+	if cfg.Email.ResendCooldown <= 0 {
+		return errors.New("EMAIL_RESEND_COOLDOWN must be positive")
+	}
+
+	return nil
 }
 
 func getEnv(key, fallback string) string {

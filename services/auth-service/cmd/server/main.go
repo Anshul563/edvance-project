@@ -12,6 +12,7 @@ import (
 	"github.com/joho/godotenv"
 
 	"github.com/Anshul563/edvance-project/services/auth-service/internal/config"
+	"github.com/Anshul563/edvance-project/services/auth-service/internal/email"
 	"github.com/Anshul563/edvance-project/services/auth-service/internal/handler"
 	"github.com/Anshul563/edvance-project/services/auth-service/internal/repository"
 	"github.com/Anshul563/edvance-project/services/auth-service/internal/router"
@@ -101,10 +102,43 @@ func main() {
 		os.Exit(1)
 	}
 
+	emailSender, err := newEmailSender(cfg)
+	if err != nil {
+		slog.Error(
+			"failed to create email sender",
+			"error",
+			err,
+		)
+		os.Exit(1)
+	}
+
+	verificationService, err := service.NewEmailVerificationService(
+		repository.NewEmailVerificationRepository(db),
+		userRepository,
+		emailSender,
+		repository.NewResendLimiter(
+			redisClient,
+			cfg.Email.ResendCooldown,
+		),
+		service.EmailVerificationConfig{
+			TokenTTL:            cfg.Email.TokenTTL,
+			VerificationBaseURL: cfg.Email.VerificationURL,
+		},
+	)
+	if err != nil {
+		slog.Error(
+			"failed to create verification service",
+			"error",
+			err,
+		)
+		os.Exit(1)
+	}
+
 	authService := service.NewAuthService(
 		userRepository,
 		sessionService,
 		cfg.Auth.AccessTokenTTL,
+		verificationService,
 	)
 
 	healthHandler := handler.NewHealthHandler(
@@ -121,6 +155,8 @@ func main() {
 			Refresh:  handler.NewRefreshHandler(authService),
 			Logout:   handler.NewLogoutHandler(authService),
 			Session:  handler.NewSessionHandler(authService),
+			Verify:   handler.NewVerifyEmailHandler(verificationService),
+			Resend:   handler.NewResendVerificationHandler(verificationService),
 		},
 	)
 
@@ -181,4 +217,22 @@ func main() {
 	}
 
 	slog.Info("auth service stopped")
+}
+
+// newEmailSender builds the configured email provider. Config validation
+// already guarantees console mode never runs in production.
+func newEmailSender(cfg config.Config) (email.Sender, error) {
+	switch cfg.Email.Provider {
+	case "smtp":
+		return email.NewSMTPSender(email.SMTPConfig{
+			Host:     cfg.Email.SMTPHost,
+			Port:     cfg.Email.SMTPPort,
+			Username: cfg.Email.SMTPUsername,
+			Password: cfg.Email.SMTPPassword,
+			From:     cfg.Email.From,
+		})
+
+	default:
+		return email.NewConsoleSender(cfg.Email.From)
+	}
 }

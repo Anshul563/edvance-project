@@ -49,7 +49,7 @@ func TestAuthLifecycleIntegration(t *testing.T) {
 		t.Fatalf("session service: %v", err)
 	}
 
-	svc := NewAuthService(userRepo, sessionService, 15*time.Minute)
+	svc := NewAuthService(userRepo, sessionService, 15*time.Minute, nil)
 
 	email := "lifecycle-" + time.Now().Format("150405.000000") + "@example.com"
 

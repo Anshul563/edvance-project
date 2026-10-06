@@ -141,6 +141,7 @@ func newTestAuthService(
 		users,
 		newTestSessionService(store),
 		15*time.Minute,
+		nil,
 	)
 }
 

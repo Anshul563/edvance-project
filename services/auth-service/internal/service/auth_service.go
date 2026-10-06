@@ -26,6 +26,7 @@ var (
 type AuthService struct {
 	userRepository UserStore
 	sessions       *SessionService
+	verification   *EmailVerificationService
 	accessTTL      time.Duration
 }
 
@@ -33,10 +34,12 @@ func NewAuthService(
 	userRepository UserStore,
 	sessionService *SessionService,
 	accessTTL time.Duration,
+	verification *EmailVerificationService,
 ) *AuthService {
 	return &AuthService{
 		userRepository: userRepository,
 		sessions:       sessionService,
+		verification:   verification,
 		accessTTL:      accessTTL,
 	}
 }
@@ -50,6 +53,10 @@ type RegisterInput struct {
 
 type RegisterOutput struct {
 	User *model.User
+	// VerificationEmailSent reports whether the verification email was
+	// accepted for delivery. Registration succeeds regardless: email
+	// delivery must never fail account creation.
+	VerificationEmailSent bool
 }
 
 func (s *AuthService) Register(
@@ -118,9 +125,20 @@ func (s *AuthService) Register(
 		return nil, fmt.Errorf("create user: %w", err)
 	}
 
-	return &RegisterOutput{
+	output := &RegisterOutput{
 		User: user,
-	}, nil
+	}
+
+	// Fire the verification workflow, but never fail registration when
+	// email delivery is temporarily unavailable. The user can request a
+	// new email via resend-verification.
+	if s.verification != nil {
+		_, err := s.verification.IssueVerification(ctx, user.ID, user.Email)
+
+		output.VerificationEmailSent = err == nil
+	}
+
+	return output, nil
 }
 
 func normalizeEmail(email string) string {

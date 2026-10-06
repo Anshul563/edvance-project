@@ -44,6 +44,11 @@ func mapAuthError(err error) (int, string) {
 	case errors.Is(err, service.ErrSessionNotFound):
 		return http.StatusNotFound, "session not found"
 
+	case errors.Is(err, service.ErrInvalidVerificationToken),
+		errors.Is(err, service.ErrVerificationTokenExpired),
+		errors.Is(err, service.ErrVerificationTokenUsed):
+		return http.StatusBadRequest, "invalid or expired verification link"
+
 	default:
 		return http.StatusInternalServerError, "internal server error"
 	}

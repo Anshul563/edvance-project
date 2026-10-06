@@ -16,6 +16,8 @@ type Handlers struct {
 	Refresh  *handler.RefreshHandler
 	Logout   *handler.LogoutHandler
 	Session  *handler.SessionHandler
+	Verify   *handler.VerifyEmailHandler
+	Resend   *handler.ResendVerificationHandler
 }
 
 func New(
@@ -47,6 +49,8 @@ func registerAuthRoutes(
 	r.Post("/register", handlers.Register.Register)
 	r.Post("/login", handlers.Login.Login)
 	r.Post("/refresh", handlers.Refresh.Refresh)
+	r.Get("/verify-email", handlers.Verify.Verify)
+	r.Post("/resend-verification", handlers.Resend.Resend)
 
 	r.Group(func(r chi.Router) {
 		r.Use(authMiddleware)
