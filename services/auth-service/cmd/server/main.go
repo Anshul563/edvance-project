@@ -13,6 +13,7 @@ import (
 	"github.com/Anshul563/edvance-project/services/auth-service/internal/handler"
 	"github.com/Anshul563/edvance-project/services/auth-service/internal/repository"
 	"github.com/Anshul563/edvance-project/services/auth-service/internal/server"
+	"github.com/Anshul563/edvance-project/services/auth-service/internal/service"
 )
 
 func main() {
@@ -58,6 +59,10 @@ func main() {
 	}
 	defer redisClient.Close()
 
+	userRepository := repository.NewUserRepository(db)
+	authService := service.NewAuthService(userRepository)
+	registerHandler := handler.NewRegisterHandler(authService)
+
 	healthHandler := handler.NewHealthHandler(
 		db,
 		redisClient,
@@ -66,6 +71,7 @@ func main() {
 	srv := server.New(
 		cfg,
 		healthHandler,
+		registerHandler,
 	)
 
 	serverErr := make(chan error, 1)

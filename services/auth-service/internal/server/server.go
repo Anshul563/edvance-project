@@ -18,11 +18,15 @@ type Server struct {
 func New(
 	cfg config.Config,
 	healthHandler *handler.HealthHandler,
+	registerHandler *handler.RegisterHandler,
 ) *Server {
 	httpServer := &http.Server{
 		Addr: fmt.Sprintf(":%d", cfg.Port),
 
-		Handler: router.New(healthHandler),
+		Handler: router.New(
+			healthHandler,
+			registerHandler,
+		),
 
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
