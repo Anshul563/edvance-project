@@ -54,6 +54,14 @@ func registerServiceRoutes(
 		return err
 	}
 
+	mediaProxy, err := proxy.New(
+		cfg.Services.MediaURL,
+		"/api/v1/media",
+	)
+	if err != nil {
+		return err
+	}
+
 	courseProxy, err := proxy.New(
 		cfg.Services.CourseURL,
 		"/api/v1/courses",
@@ -100,6 +108,7 @@ func registerServiceRoutes(
 		r.Mount("/creators", creatorProxy)
 		r.Mount("/content", contentProxy)
 		r.Mount("/videos", videoProxy)
+		r.Mount("/media", mediaProxy)
 		r.Mount("/courses", courseProxy)
 		r.Mount("/learning", learningProxy)
 		r.Mount("/social", socialProxy)

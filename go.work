@@ -4,6 +4,7 @@ use (
 	./services/api-gateway
 	./services/auth-service
 	./services/creator-service
+	./services/media-service
 	./services/user-service
 	./services/video-service
 )

@@ -18,6 +18,7 @@ type ServicesConfig struct {
 	CreatorURL  string
 	ContentURL  string
 	VideoURL    string
+	MediaURL    string
 	CourseURL   string
 	LearningURL string
 	SocialURL   string
@@ -44,6 +45,7 @@ func Load() Config {
 			CreatorURL:  getEnv("CREATOR_SERVICE_URL", "http://localhost:8083"),
 			ContentURL:  getEnv("CONTENT_SERVICE_URL", "http://localhost:8084"),
 			VideoURL:    getEnv("VIDEO_SERVICE_URL", "http://localhost:8085"),
+			MediaURL:    getEnv("MEDIA_SERVICE_URL", "http://localhost:8091"),
 			CourseURL:   getEnv("COURSE_SERVICE_URL", "http://localhost:8086"),
 			LearningURL: getEnv("LEARNING_SERVICE_URL", "http://localhost:8087"),
 			SocialURL:   getEnv("SOCIAL_SERVICE_URL", "http://localhost:8088"),
