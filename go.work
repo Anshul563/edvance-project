@@ -1,3 +1,6 @@
 go 1.26.5
 
-use ./services/api-gateway
+use (
+	./services/api-gateway
+	./services/auth-service
+)
