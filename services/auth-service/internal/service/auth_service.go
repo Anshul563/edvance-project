@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/mail"
 	"strings"
+	"time"
 	"unicode"
 
 	"golang.org/x/crypto/bcrypt"
@@ -23,14 +24,20 @@ var (
 )
 
 type AuthService struct {
-	userRepository *repository.UserRepository
+	userRepository UserStore
+	sessions       *SessionService
+	accessTTL      time.Duration
 }
 
 func NewAuthService(
-	userRepository *repository.UserRepository,
+	userRepository UserStore,
+	sessionService *SessionService,
+	accessTTL time.Duration,
 ) *AuthService {
 	return &AuthService{
 		userRepository: userRepository,
+		sessions:       sessionService,
+		accessTTL:      accessTTL,
 	}
 }
 

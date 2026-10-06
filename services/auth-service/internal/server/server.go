@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/Anshul563/edvance-project/services/auth-service/internal/config"
-	"github.com/Anshul563/edvance-project/services/auth-service/internal/handler"
 	"github.com/Anshul563/edvance-project/services/auth-service/internal/router"
 )
 
@@ -17,15 +16,18 @@ type Server struct {
 
 func New(
 	cfg config.Config,
-	healthHandler *handler.HealthHandler,
-	registerHandler *handler.RegisterHandler,
+	handlers router.Handlers,
 ) *Server {
 	httpServer := &http.Server{
 		Addr: fmt.Sprintf(":%d", cfg.Port),
 
 		Handler: router.New(
-			healthHandler,
-			registerHandler,
+			handlers,
+			router.NewAuthMiddleware(
+				cfg.Auth.JWTAccessSecret,
+				cfg.Auth.JWTIssuer,
+				cfg.Auth.JWTAudience,
+			),
 		),
 
 		ReadHeaderTimeout: 5 * time.Second,
