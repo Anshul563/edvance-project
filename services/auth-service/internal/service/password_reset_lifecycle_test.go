@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/url"
 	"os"
 	"testing"
@@ -103,11 +104,12 @@ func TestPasswordResetLifecycleIntegration(t *testing.T) {
 		t.Fatalf("login: %v", err)
 	}
 
-	// Forgot always succeeds silently.
+	// Forgot always succeeds silently. The IP is unique per run so
+	// Redis cooldowns from earlier runs cannot flake the test.
 	if err := resetService.RequestPasswordReset(
 		ctx,
 		email,
-		"127.0.0.1",
+		uniqueTestIP(),
 	); err != nil {
 		t.Fatalf("forgot: %v", err)
 	}
@@ -201,10 +203,9 @@ func TestPasswordResetLifecycleIntegration(t *testing.T) {
 	if err := shortService.RequestPasswordReset(
 		ctx,
 		expiredEmail,
-		// Distinct IP: the earlier request already consumed the
-		// 127.0.0.1 cooldown window, which is exactly what the
-		// IP limiter is for.
-		"127.0.0.2",
+		// Distinct IP: the earlier request already consumed its own
+		// cooldown window, which is exactly what the IP limiter is for.
+		uniqueTestIP(),
 	); err != nil {
 		t.Fatalf("forgot for expiry test: %v", err)
 	}
@@ -250,4 +251,12 @@ func resetTokenFromIntegrationURL(t *testing.T, rawURL string) string {
 	}
 
 	return token
+}
+
+// uniqueTestIP returns a documentation-range IP that differs per run, so
+// real Redis cooldowns cannot leak between test runs.
+func uniqueTestIP() string {
+	octet := 1 + (time.Now().UnixNano()/int64(time.Millisecond))%250
+
+	return fmt.Sprintf("198.51.100.%d", octet)
 }
