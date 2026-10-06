@@ -1,4 +1,4 @@
-module github.com/Anshul563/edvance-project/services/creator-service
+module github.com/Anshul563/edvance-project/services/video-service
 
 go 1.26.5
 

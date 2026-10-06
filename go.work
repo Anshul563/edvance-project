@@ -5,4 +5,5 @@ use (
 	./services/auth-service
 	./services/creator-service
 	./services/user-service
+	./services/video-service
 )
