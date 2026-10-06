@@ -40,3 +40,20 @@ func (s *ConsoleSender) SendVerificationEmail(
 
 	return nil
 }
+
+func (s *ConsoleSender) SendPasswordResetEmail(
+	_ context.Context,
+	toEmail string,
+	resetURL string,
+) error {
+	// Same development-only treatment as verification links.
+	slog.Info(
+		"email: development password reset link (not sent)",
+		"to",
+		toEmail,
+		"reset_url",
+		resetURL,
+	)
+
+	return nil
+}

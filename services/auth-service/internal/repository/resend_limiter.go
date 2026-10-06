@@ -11,9 +11,10 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// ResendLimiter enforces a per-key cooldown between email-verification
-// resend requests using Redis. Keys hash the email so raw addresses never
-// sit in Redis keys.
+// ResendLimiter enforces a per-key cooldown between email requests using
+// Redis. Keys hash the email (or IP) so raw values never sit in Redis
+// keys. The prefix namespaces independent cooldowns (verification resends,
+// password resets, IPs) so they never share a window.
 type ResendLimiter struct {
 	redis    *redis.Client
 	cooldown time.Duration
@@ -24,18 +25,56 @@ func NewResendLimiter(
 	client *redis.Client,
 	cooldown time.Duration,
 ) *ResendLimiter {
+	return NewCooldownLimiter(
+		client,
+		"email_verification_resend",
+		cooldown,
+	)
+}
+
+func NewPasswordResetLimiter(
+	client *redis.Client,
+	cooldown time.Duration,
+) *ResendLimiter {
+	return NewCooldownLimiter(
+		client,
+		"password_reset_request",
+		cooldown,
+	)
+}
+
+func NewPasswordResetIPLimiter(
+	client *redis.Client,
+	cooldown time.Duration,
+) *ResendLimiter {
+	return NewCooldownLimiter(
+		client,
+		"password_reset_request_ip",
+		cooldown,
+	)
+}
+
+func NewCooldownLimiter(
+	client *redis.Client,
+	prefix string,
+	cooldown time.Duration,
+) *ResendLimiter {
 	if cooldown <= 0 {
 		cooldown = time.Minute
+	}
+
+	if prefix == "" {
+		prefix = "cooldown"
 	}
 
 	return &ResendLimiter{
 		redis:    client,
 		cooldown: cooldown,
-		prefix:   "email_verification_resend",
+		prefix:   prefix,
 	}
 }
 
-// Allow reports whether a resend for the given email may proceed. The
+// Allow reports whether a request for the given key may proceed. The
 // first call in a cooldown window wins; the rest are refused until the
 // window expires. A Redis outage fails closed (error), so the limit
 // cannot be bypassed by an unavailable cache.

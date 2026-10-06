@@ -141,6 +141,32 @@ func main() {
 		verificationService,
 	)
 
+	resetService, err := service.NewPasswordResetService(
+		repository.NewPasswordResetRepository(db),
+		userRepository,
+		emailSender,
+		repository.NewPasswordResetLimiter(
+			redisClient,
+			cfg.Reset.Cooldown,
+		),
+		repository.NewPasswordResetIPLimiter(
+			redisClient,
+			cfg.Reset.IPCooldown,
+		),
+		service.PasswordResetConfig{
+			TokenTTL:     cfg.Reset.TokenTTL,
+			ResetBaseURL: cfg.Reset.BaseURL,
+		},
+	)
+	if err != nil {
+		slog.Error(
+			"failed to create password reset service",
+			"error",
+			err,
+		)
+		os.Exit(1)
+	}
+
 	healthHandler := handler.NewHealthHandler(
 		db,
 		redisClient,
@@ -157,6 +183,8 @@ func main() {
 			Session:  handler.NewSessionHandler(authService),
 			Verify:   handler.NewVerifyEmailHandler(verificationService),
 			Resend:   handler.NewResendVerificationHandler(verificationService),
+			Forgot:   handler.NewForgotPasswordHandler(resetService),
+			Reset:    handler.NewResetPasswordHandler(resetService),
 		},
 	)
 

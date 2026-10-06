@@ -49,6 +49,11 @@ func mapAuthError(err error) (int, string) {
 		errors.Is(err, service.ErrVerificationTokenUsed):
 		return http.StatusBadRequest, "invalid or expired verification link"
 
+	case errors.Is(err, service.ErrInvalidResetToken),
+		errors.Is(err, service.ErrResetTokenExpired),
+		errors.Is(err, service.ErrResetTokenUsed):
+		return http.StatusBadRequest, "invalid or expired reset link"
+
 	default:
 		return http.StatusInternalServerError, "internal server error"
 	}

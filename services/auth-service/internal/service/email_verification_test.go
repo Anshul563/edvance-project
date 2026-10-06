@@ -118,7 +118,7 @@ func (f *fakeVerificationStore) Consume(
 	return nil
 }
 
-// stubSender records verification emails without delivering them.
+// stubSender records verification and reset emails without delivering them.
 type stubSender struct {
 	mu   sync.Mutex
 	sent []sentEmail
@@ -126,8 +126,9 @@ type stubSender struct {
 }
 
 type sentEmail struct {
-	to  string
-	url string
+	to   string
+	url  string
+	kind string
 }
 
 func (s *stubSender) SendVerificationEmail(
@@ -142,7 +143,24 @@ func (s *stubSender) SendVerificationEmail(
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.sent = append(s.sent, sentEmail{to: toEmail, url: verificationURL})
+	s.sent = append(s.sent, sentEmail{to: toEmail, url: verificationURL, kind: "verify"})
+
+	return nil
+}
+
+func (s *stubSender) SendPasswordResetEmail(
+	_ context.Context,
+	toEmail string,
+	resetURL string,
+) error {
+	if s.err != nil {
+		return s.err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.sent = append(s.sent, sentEmail{to: toEmail, url: resetURL, kind: "reset"})
 
 	return nil
 }

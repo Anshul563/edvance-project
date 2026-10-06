@@ -14,4 +14,9 @@ type Sender interface {
 		toEmail string,
 		verificationURL string,
 	) error
+	SendPasswordResetEmail(
+		ctx context.Context,
+		toEmail string,
+		resetURL string,
+	) error
 }

@@ -16,6 +16,7 @@ type Config struct {
 	Redis    RedisConfig
 	Auth     AuthConfig
 	Email    EmailConfig
+	Reset    PasswordResetConfig
 }
 
 type DatabaseConfig struct {
@@ -47,6 +48,13 @@ type EmailConfig struct {
 	SMTPPassword string
 }
 
+type PasswordResetConfig struct {
+	TokenTTL   time.Duration
+	BaseURL    string
+	Cooldown   time.Duration
+	IPCooldown time.Duration
+}
+
 func Load() (Config, error) {
 	port := 8081
 
@@ -75,6 +83,16 @@ func Load() (Config, error) {
 	}
 
 	resendCooldown, err := getEnvDuration("EMAIL_RESEND_COOLDOWN", time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
+
+	resetTokenTTL, err := getEnvDuration("PASSWORD_RESET_TTL", 30*time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
+
+	resetCooldown, err := getEnvDuration("PASSWORD_RESET_COOLDOWN", time.Minute)
 	if err != nil {
 		return Config{}, err
 	}
@@ -128,6 +146,13 @@ func Load() (Config, error) {
 			SMTPUsername: os.Getenv("SMTP_USERNAME"),
 			SMTPPassword: os.Getenv("SMTP_PASSWORD"),
 		},
+
+		Reset: PasswordResetConfig{
+			TokenTTL:   resetTokenTTL,
+			BaseURL:    getEnv("PASSWORD_RESET_URL", "http://localhost:3000/reset-password"),
+			Cooldown:   resetCooldown,
+			IPCooldown: resetCooldown,
+		},
 	}
 
 	if cfg.Auth.JWTAccessSecret == "" {
@@ -146,6 +171,18 @@ func Load() (Config, error) {
 
 	if err := validateEmailConfig(cfg); err != nil {
 		return Config{}, err
+	}
+
+	if cfg.Reset.TokenTTL <= 0 {
+		return Config{}, errors.New("PASSWORD_RESET_TTL must be positive")
+	}
+
+	if cfg.Reset.BaseURL == "" {
+		return Config{}, errors.New("PASSWORD_RESET_URL is required")
+	}
+
+	if cfg.Reset.Cooldown <= 0 || cfg.Reset.IPCooldown <= 0 {
+		return Config{}, errors.New("PASSWORD_RESET_COOLDOWN must be positive")
 	}
 
 	return cfg, nil

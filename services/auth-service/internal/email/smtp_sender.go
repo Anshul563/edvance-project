@@ -54,15 +54,10 @@ func NewSMTPSender(cfg SMTPConfig) (*SMTPSender, error) {
 }
 
 func (s *SMTPSender) SendVerificationEmail(
-	_ context.Context,
+	ctx context.Context,
 	toEmail string,
 	verificationURL string,
 ) error {
-	if toEmail == "" || verificationURL == "" {
-		return errors.New("email: recipient and verification URL are required")
-	}
-
-	subject := "Verify your Edvance email"
 	body := "Welcome to Edvance!\r\n" +
 		"\r\n" +
 		"Please verify your email address by opening this link:\r\n" +
@@ -70,6 +65,35 @@ func (s *SMTPSender) SendVerificationEmail(
 		"\r\n" +
 		"This link expires in 24 hours and can only be used once.\r\n" +
 		"If you did not create an account, you can ignore this email.\r\n"
+
+	return s.send(ctx, toEmail, "Verify your Edvance email", body)
+}
+
+func (s *SMTPSender) SendPasswordResetEmail(
+	ctx context.Context,
+	toEmail string,
+	resetURL string,
+) error {
+	body := "You requested a password reset for your Edvance account.\r\n" +
+		"\r\n" +
+		"Choose a new password by opening this link:\r\n" +
+		resetURL + "\r\n" +
+		"\r\n" +
+		"This link expires in 30 minutes and can only be used once.\r\n" +
+		"If you did not request this, you can ignore this email.\r\n"
+
+	return s.send(ctx, toEmail, "Reset your Edvance password", body)
+}
+
+func (s *SMTPSender) send(
+	_ context.Context,
+	toEmail string,
+	subject string,
+	body string,
+) error {
+	if toEmail == "" {
+		return errors.New("email: recipient is required")
+	}
 
 	message := "From: " + s.from + "\r\n" +
 		"To: " + toEmail + "\r\n" +
@@ -84,12 +108,12 @@ func (s *SMTPSender) SendVerificationEmail(
 	auth := smtp.PlainAuth("", s.username, s.password, s.host)
 
 	if err := smtp.SendMail(addr, auth, s.from, []string{toEmail}, []byte(message)); err != nil {
-		// Never include message bodies (which hold the token URL) in errors.
+		// Never include message bodies (which hold token URLs) in errors.
 		if strings.Contains(strings.ToLower(err.Error()), "auth") {
 			return errors.New("email: SMTP authentication failed")
 		}
 
-		return errors.New("email: failed to send verification email")
+		return errors.New("email: failed to send email")
 	}
 
 	return nil

@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"golang.org/x/crypto/bcrypt"
 
 	"github.com/Anshul563/edvance-project/services/auth-service/internal/model"
+	"github.com/Anshul563/edvance-project/services/auth-service/internal/password"
 	"github.com/Anshul563/edvance-project/services/auth-service/internal/repository"
 )
 
@@ -92,9 +92,9 @@ func (s *AuthService) Login(
 		return nil, err
 	}
 
-	if err := bcrypt.CompareHashAndPassword(
-		[]byte(user.PasswordHash),
-		[]byte(input.Password),
+	if err := password.CheckPassword(
+		user.PasswordHash,
+		input.Password,
 	); err != nil {
 		return nil, ErrInvalidCredentials
 	}

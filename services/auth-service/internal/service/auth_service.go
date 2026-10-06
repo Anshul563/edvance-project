@@ -9,19 +9,21 @@ import (
 	"time"
 	"unicode"
 
-	"golang.org/x/crypto/bcrypt"
-
 	"github.com/Anshul563/edvance-project/services/auth-service/internal/model"
+	"github.com/Anshul563/edvance-project/services/auth-service/internal/password"
 	"github.com/Anshul563/edvance-project/services/auth-service/internal/repository"
 )
 
 var (
 	ErrInvalidEmail       = errors.New("invalid email")
 	ErrInvalidUsername    = errors.New("invalid username")
-	ErrInvalidPassword    = errors.New("invalid password")
 	ErrEmailAlreadyExists = errors.New("email already exists")
 	ErrUsernameExists     = errors.New("username already exists")
 )
+
+// ErrInvalidPassword aliases the shared password-policy error so existing
+// callers (handlers, tests) keep working unchanged.
+var ErrInvalidPassword = password.ErrInvalidPassword
 
 type AuthService struct {
 	userRepository UserStore
@@ -76,8 +78,8 @@ func (s *AuthService) Register(
 		return nil, err
 	}
 
-	if err := validatePassword(input.Password); err != nil {
-		return nil, err
+	if err := password.ValidatePassword(input.Password); err != nil {
+		return nil, ErrInvalidPassword
 	}
 
 	if displayName == "" {
@@ -104,10 +106,7 @@ func (s *AuthService) Register(
 		return nil, fmt.Errorf("check username: %w", err)
 	}
 
-	passwordHash, err := bcrypt.GenerateFromPassword(
-		[]byte(input.Password),
-		bcrypt.DefaultCost,
-	)
+	passwordHash, err := password.HashPassword(input.Password)
 	if err != nil {
 		return nil, fmt.Errorf("hash password: %w", err)
 	}
@@ -115,7 +114,7 @@ func (s *AuthService) Register(
 	user := &model.User{
 		Email:         email,
 		Username:      username,
-		PasswordHash:  string(passwordHash),
+		PasswordHash:  passwordHash,
 		DisplayName:   displayName,
 		Status:        model.UserStatusActive,
 		EmailVerified: false,
@@ -176,31 +175,6 @@ func validateUsername(username string) error {
 		}
 
 		return ErrInvalidUsername
-	}
-
-	return nil
-}
-
-func validatePassword(password string) error {
-	if len(password) < 8 || len(password) > 72 {
-		return ErrInvalidPassword
-	}
-
-	var hasLetter bool
-	var hasNumber bool
-
-	for _, char := range password {
-		if unicode.IsLetter(char) {
-			hasLetter = true
-		}
-
-		if unicode.IsDigit(char) {
-			hasNumber = true
-		}
-	}
-
-	if !hasLetter || !hasNumber {
-		return ErrInvalidPassword
 	}
 
 	return nil
