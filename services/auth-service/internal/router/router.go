@@ -26,23 +26,35 @@ func New(
 
 	r.Get("/health", handlers.Health.Health)
 	r.Get("/ready", handlers.Health.Ready)
-	r.Post("/register", handlers.Register.Register)
+
+	// Auth endpoints are served both at the root (where the API gateway
+	// forwards stripped /api/v1/auth/* paths) and under /auth (for
+	// direct callers using the prefixed form).
+	registerAuthRoutes(r, handlers, authMiddleware)
 
 	r.Route("/auth", func(r chi.Router) {
-		r.Post("/register", handlers.Register.Register)
-		r.Post("/login", handlers.Login.Login)
-		r.Post("/refresh", handlers.Refresh.Refresh)
-
-		r.Group(func(r chi.Router) {
-			r.Use(authMiddleware)
-			r.Post("/logout", handlers.Logout.Logout)
-			r.Post("/logout-all", handlers.Logout.LogoutAll)
-			r.Get("/sessions", handlers.Session.List)
-			r.Delete("/sessions/{sessionID}", handlers.Session.Delete)
-		})
+		registerAuthRoutes(r, handlers, authMiddleware)
 	})
 
 	return r
+}
+
+func registerAuthRoutes(
+	r chi.Router,
+	handlers Handlers,
+	authMiddleware func(http.Handler) http.Handler,
+) {
+	r.Post("/register", handlers.Register.Register)
+	r.Post("/login", handlers.Login.Login)
+	r.Post("/refresh", handlers.Refresh.Refresh)
+
+	r.Group(func(r chi.Router) {
+		r.Use(authMiddleware)
+		r.Post("/logout", handlers.Logout.Logout)
+		r.Post("/logout-all", handlers.Logout.LogoutAll)
+		r.Get("/sessions", handlers.Session.List)
+		r.Delete("/sessions/{sessionID}", handlers.Session.Delete)
+	})
 }
 
 // NewAuthMiddleware builds the JWT middleware from service config values.
