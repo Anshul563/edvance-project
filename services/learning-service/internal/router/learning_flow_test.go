@@ -185,12 +185,14 @@ func TestLearningFlowIntegration(t *testing.T) {
 			Enrollment: handler.NewEnrollmentHandler(enrollmentService),
 			Progress:   handler.NewProgressHandler(progressService),
 			Learning:   handler.NewLearningHandler(learningService),
+			Internal:   handler.NewInternalHandler(enrollmentService),
 		},
 		middleware.Authenticate(middleware.AuthConfig{
 			AccessSecret: testSecret,
 			Issuer:       testIssuer,
 			Audience:     testAudience,
 		}),
+		middleware.InternalOnly("test-internal-key"),
 	)
 
 	userID := uuid.New()
@@ -461,4 +463,148 @@ func TestLearningFlowIntegration(t *testing.T) {
 	if decode(otherDashboard)["totalCourses"] != float64(0) {
 		t.Fatalf("expected empty dashboard, got %s", otherDashboard.Body.String())
 	}
+}
+
+func TestInternalEnrollIntegration(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not set")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	pool, err := repository.NewPostgres(ctx, databaseURL)
+	if err != nil {
+		t.Skipf("postgres not available: %v", err)
+	}
+	defer pool.Close()
+
+	enrollmentRepo := repository.NewEnrollmentRepository(pool)
+
+	enrollmentService, err := service.NewEnrollmentService(
+		enrollmentRepo,
+		&fakeCourseClient{},
+	)
+	if err != nil {
+		t.Fatalf("service: %v", err)
+	}
+
+	r := New(
+		Handlers{
+			Health:   handler.NewHealthHandler(pool),
+			Internal: handler.NewInternalHandler(enrollmentService),
+		},
+		middleware.Authenticate(middleware.AuthConfig{}),
+		middleware.InternalOnly("test-internal-key"),
+	)
+
+	userID := uuid.New()
+	courseID := uuid.New()
+
+	defer func() {
+		_, _ = pool.Exec(
+			context.Background(),
+			`DELETE FROM learning_activities WHERE user_id = $1`,
+			userID,
+		)
+		_, _ = pool.Exec(
+			context.Background(),
+			`DELETE FROM lesson_progress WHERE enrollment_id IN (
+				SELECT id FROM enrollments WHERE user_id = $1
+			)`,
+			userID,
+		)
+		_, _ = pool.Exec(
+			context.Background(),
+			`DELETE FROM enrollments WHERE user_id = $1`,
+			userID,
+		)
+	}()
+
+	serve := func(body string, key string) *httptest.ResponseRecorder {
+		t.Helper()
+
+		req := httptest.NewRequest(
+			http.MethodPost,
+			"/internal/enrollments",
+			strings.NewReader(body),
+		)
+
+		if key != "" {
+			req.Header.Set("X-Internal-Key", key)
+		}
+
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+
+		return rec
+	}
+
+	payload := `{"userId":"` + userID.String() + `",` +
+		`"courseId":"` + courseID.String() + `","source":"purchase"}`
+
+	// Wrong key rejected.
+	if rec := serve(payload, "wrong-key"); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", rec.Code)
+	}
+
+	// Purchase enrollment created.
+	created := serve(payload, "test-internal-key")
+	if created.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d %s", created.Code, created.Body.String())
+	}
+
+	var body map[string]any
+
+	if err := json.Unmarshal(created.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	if body["source"] != "purchase" {
+		t.Fatalf("expected purchase source, got %v", body)
+	}
+
+	// Idempotent repeat returns the same enrollment.
+	again := serve(payload, "test-internal-key")
+	if again.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", again.Code)
+	}
+
+	var againBody map[string]any
+
+	if err := json.Unmarshal(again.Body.Bytes(), &againBody); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	if againBody["id"] != body["id"] {
+		t.Fatal("repeat must return the same enrollment")
+	}
+
+	// Bad source rejected.
+	bad := serve(
+		`{"userId":"`+userID.String()+`","courseId":"`+courseID.String()+`","source":"gift"}`,
+		"test-internal-key",
+	)
+	if bad.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", bad.Code)
+	}
+}
+
+// fakeCourseClient is unused here (internal enroll needs no course
+// reads) but satisfies the constructor.
+type fakeCourseClient struct{}
+
+func (fakeCourseClient) GetCourse(
+	_ context.Context,
+	_ uuid.UUID,
+) (*course.Course, error) {
+	return nil, course.ErrCourseNotFound
+}
+
+func (fakeCourseClient) GetCourseStructure(
+	_ context.Context,
+	_ uuid.UUID,
+) (*course.CourseStructure, error) {
+	return nil, course.ErrCourseNotFound
 }

@@ -15,6 +15,7 @@ type Config struct {
 	JWT      JWTConfig
 	Course   ServiceConfig
 	Learning ServiceConfig
+	Internal InternalConfig
 }
 
 type DatabaseConfig struct {
@@ -30,6 +31,10 @@ type JWTConfig struct {
 type ServiceConfig struct {
 	BaseURL        string
 	RequestTimeout time.Duration
+}
+
+type InternalConfig struct {
+	APIKey string
 }
 
 func Load() (Config, error) {
@@ -76,6 +81,10 @@ func Load() (Config, error) {
 			),
 			RequestTimeout: 10 * time.Second,
 		},
+
+		Internal: InternalConfig{
+			APIKey: os.Getenv("COMMERCE_SERVICE_INTERNAL_TOKEN"),
+		},
 	}
 
 	// Same shared HMAC secret as auth-service: commerce-service only
@@ -83,6 +92,14 @@ func Load() (Config, error) {
 	if cfg.JWT.AccessSecret == "" {
 		return Config{}, errors.New(
 			"JWT_ACCESS_SECRET is required (must match auth-service)",
+		)
+	}
+
+	// The internal key authenticates payment-service callbacks until
+	// mTLS or a service mesh replaces it.
+	if cfg.Internal.APIKey == "" {
+		return Config{}, errors.New(
+			"COMMERCE_SERVICE_INTERNAL_TOKEN is required",
 		)
 	}
 

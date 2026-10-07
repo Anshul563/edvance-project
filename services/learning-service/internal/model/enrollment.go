@@ -18,8 +18,9 @@ const (
 type EnrollmentSource string
 
 const (
-	EnrollmentSourceFree   EnrollmentSource = "free"
-	EnrollmentSourceManual EnrollmentSource = "manual"
+	EnrollmentSourceFree     EnrollmentSource = "free"
+	EnrollmentSourceManual   EnrollmentSource = "manual"
+	EnrollmentSourcePurchase EnrollmentSource = "purchase"
 )
 
 // Enrollment binds a user to a course. CourseID is a cross-service

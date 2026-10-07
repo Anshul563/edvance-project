@@ -15,6 +15,7 @@ type Config struct {
 	JWT      JWTConfig
 	Course   CourseConfig
 	Learning LearningConfig
+	Internal InternalConfig
 }
 
 type DatabaseConfig struct {
@@ -34,6 +35,10 @@ type CourseConfig struct {
 
 type LearningConfig struct {
 	CompletionPercent int32
+}
+
+type InternalConfig struct {
+	APIKey string
 }
 
 func Load() (Config, error) {
@@ -91,6 +96,10 @@ func Load() (Config, error) {
 		Learning: LearningConfig{
 			CompletionPercent: completion,
 		},
+
+		Internal: InternalConfig{
+			APIKey: os.Getenv("LEARNING_SERVICE_INTERNAL_TOKEN"),
+		},
 	}
 
 	// Same shared HMAC secret as auth-service: learning-service only
@@ -98,6 +107,14 @@ func Load() (Config, error) {
 	if cfg.JWT.AccessSecret == "" {
 		return Config{}, errors.New(
 			"JWT_ACCESS_SECRET is required (must match auth-service)",
+		)
+	}
+
+	// The internal key authenticates commerce-service provisioning
+	// until mTLS or a service mesh replaces it.
+	if cfg.Internal.APIKey == "" {
+		return Config{}, errors.New(
+			"LEARNING_SERVICE_INTERNAL_TOKEN is required",
 		)
 	}
 

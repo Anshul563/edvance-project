@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Anshul563/edvance-project/services/commerce-service/internal/config"
+	"github.com/Anshul563/edvance-project/services/commerce-service/internal/middleware"
 	"github.com/Anshul563/edvance-project/services/commerce-service/internal/router"
 )
 
@@ -28,6 +29,7 @@ func New(
 				cfg.JWT.Issuer,
 				cfg.JWT.Audience,
 			),
+			middleware.InternalOnly(cfg.Internal.APIKey),
 		),
 
 		ReadHeaderTimeout: 5 * time.Second,

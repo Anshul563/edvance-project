@@ -146,6 +146,7 @@ func main() {
 			Order:    handler.NewOrderHandler(orderService),
 			Coupon:   handler.NewCouponHandler(couponService),
 			Purchase: handler.NewPurchaseHandler(purchaseService),
+			Internal: handler.NewInternalHandler(orderService, purchaseService),
 		},
 	)
 

@@ -8,6 +8,7 @@ use (
 	./services/creator-service
 	./services/learning-service
 	./services/media-service
+	./services/payment-service
 	./services/user-service
 	./services/video-service
 )

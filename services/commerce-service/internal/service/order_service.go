@@ -228,6 +228,56 @@ func (s *OrderService) GetOrder(
 	return order, items, nil
 }
 
+// GetInternalOrder loads an order by ID without user scoping, for
+// trusted service-to-service reads (payment-service). Callers
+// authenticate by internal key; the order data returned is the minimum
+// the payment flow needs (identity, state, trusted totals).
+func (s *OrderService) GetInternalOrder(
+	ctx context.Context,
+	orderID uuid.UUID,
+) (*model.Order, error) {
+	order, err := s.orders.FindOrderByID(ctx, orderID)
+	if err != nil {
+		if errors.Is(err, repository.ErrOrderNotFound) {
+			return nil, ErrOrderNotFound
+		}
+
+		return nil, fmt.Errorf("find order: %w", err)
+	}
+
+	return order, nil
+}
+
+// MarkOrderFailed records a terminal provider failure
+// (pending_payment -> failed). Non-pending orders refuse. The reason is
+// accepted for future audit trails; state is what matters today.
+func (s *OrderService) MarkOrderFailed(
+	ctx context.Context,
+	orderID uuid.UUID,
+	_ string,
+) (*model.Order, error) {
+	order, err := s.orders.UpdateOrderStatus(
+		ctx,
+		orderID,
+		model.OrderPendingPayment,
+		model.OrderFailed,
+		nil,
+	)
+	if err != nil {
+		if errors.Is(err, repository.ErrOrderNotFound) {
+			return nil, ErrOrderNotFound
+		}
+
+		if errors.Is(err, repository.ErrInvalidOrderState) {
+			return nil, ErrInvalidOrderState
+		}
+
+		return nil, fmt.Errorf("fail order: %w", err)
+	}
+
+	return order, nil
+}
+
 type OrderPage struct {
 	Items      []*model.Order
 	Total      int64

@@ -126,6 +126,7 @@ func main() {
 			Enrollment: handler.NewEnrollmentHandler(enrollmentService),
 			Progress:   handler.NewProgressHandler(progressService),
 			Learning:   handler.NewLearningHandler(learningService),
+			Internal:   handler.NewInternalHandler(enrollmentService),
 		},
 	)
 

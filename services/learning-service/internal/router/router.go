@@ -14,11 +14,13 @@ type Handlers struct {
 	Enrollment *handler.EnrollmentHandler
 	Progress   *handler.ProgressHandler
 	Learning   *handler.LearningHandler
+	Internal   *handler.InternalHandler
 }
 
 func New(
 	handlers Handlers,
 	authMiddleware func(http.Handler) http.Handler,
+	internalMiddleware func(http.Handler) http.Handler,
 ) http.Handler {
 	r := chi.NewRouter()
 
@@ -32,6 +34,15 @@ func New(
 
 	r.Route("/learning", func(r chi.Router) {
 		registerLearningRoutes(r, handlers, authMiddleware)
+	})
+
+	// Internal service-to-service routes (commerce provisioning).
+	// Key-guarded, never JWT-authed, never proxied by the gateway.
+	r.Route("/internal", func(r chi.Router) {
+		r.With(internalMiddleware).Post(
+			"/enrollments",
+			handlers.Internal.Enroll,
+		)
 	})
 
 	return r

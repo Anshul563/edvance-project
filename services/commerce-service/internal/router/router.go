@@ -15,11 +15,13 @@ type Handlers struct {
 	Order    *handler.OrderHandler
 	Coupon   *handler.CouponHandler
 	Purchase *handler.PurchaseHandler
+	Internal *handler.InternalHandler
 }
 
 func New(
 	handlers Handlers,
 	authMiddleware func(http.Handler) http.Handler,
+	internalMiddleware func(http.Handler) http.Handler,
 ) http.Handler {
 	r := chi.NewRouter()
 
@@ -33,6 +35,25 @@ func New(
 
 	r.Route("/commerce", func(r chi.Router) {
 		registerCommerceRoutes(r, handlers, authMiddleware)
+	})
+
+	// Internal service-to-service routes (payment-service callbacks).
+	// Key-guarded, never JWT-authed, never proxied by the gateway.
+	r.Route("/internal", func(r chi.Router) {
+		r.Route("/orders", func(r chi.Router) {
+			r.With(internalMiddleware).Get(
+				"/{orderID}",
+				handlers.Internal.GetOrder,
+			)
+			r.With(internalMiddleware).Post(
+				"/{orderID}/paid",
+				handlers.Internal.MarkPaid,
+			)
+			r.With(internalMiddleware).Post(
+				"/{orderID}/failed",
+				handlers.Internal.MarkFailed,
+			)
+		})
 	})
 
 	return r

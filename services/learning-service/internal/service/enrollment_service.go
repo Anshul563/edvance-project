@@ -147,7 +147,8 @@ func (s *EnrollmentService) EnrollUser(
 	}
 
 	if source != model.EnrollmentSourceFree &&
-		source != model.EnrollmentSourceManual {
+		source != model.EnrollmentSourceManual &&
+		source != model.EnrollmentSourcePurchase {
 		return nil, errors.New("invalid enrollment source")
 	}
 
