@@ -3,6 +3,7 @@ go 1.26.5
 use (
 	./services/api-gateway
 	./services/auth-service
+	./services/course-service
 	./services/creator-service
 	./services/media-service
 	./services/user-service

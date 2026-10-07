@@ -62,9 +62,29 @@ func registerServiceRoutes(
 		return err
 	}
 
+	// Course-service owns three mounts, so all three strip only /api/v1:
+	// the service sees distinguishing /courses/*, /sections/*, and
+	// /lessons/* paths. Stripping each mount fully would collapse
+	// /api/v1/sections/:id and /api/v1/courses/:id into the same /:id.
 	courseProxy, err := proxy.New(
 		cfg.Services.CourseURL,
-		"/api/v1/courses",
+		"/api/v1",
+	)
+	if err != nil {
+		return err
+	}
+
+	sectionProxy, err := proxy.New(
+		cfg.Services.CourseURL,
+		"/api/v1",
+	)
+	if err != nil {
+		return err
+	}
+
+	lessonProxy, err := proxy.New(
+		cfg.Services.CourseURL,
+		"/api/v1",
 	)
 	if err != nil {
 		return err
@@ -110,6 +130,8 @@ func registerServiceRoutes(
 		r.Mount("/videos", videoProxy)
 		r.Mount("/media", mediaProxy)
 		r.Mount("/courses", courseProxy)
+		r.Mount("/sections", sectionProxy)
+		r.Mount("/lessons", lessonProxy)
 		r.Mount("/learning", learningProxy)
 		r.Mount("/social", socialProxy)
 		r.Mount("/commerce", commerceProxy)
