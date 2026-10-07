@@ -5,6 +5,7 @@ use (
 	./services/auth-service
 	./services/course-service
 	./services/creator-service
+	./services/learning-service
 	./services/media-service
 	./services/user-service
 	./services/video-service

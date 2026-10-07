@@ -1,4 +1,4 @@
-module github.com/Anshul563/edvance-project/services/course-service
+module github.com/Anshul563/edvance-project/services/learning-service
 
 go 1.26.5
 

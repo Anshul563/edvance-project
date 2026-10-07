@@ -155,14 +155,14 @@ func TestCourseRepositorySlugUnique(t *testing.T) {
 	seedCourse(t, pool, uuid.New(), "unique-slug")
 
 	dup := &model.Course{
-		CreatorID: uuid.New(),
-		Title:     "Dup",
-		Slug:      "unique-slug",
-		Level:     model.CourseLevelBeginner,
-		Language:  "en",
-		Status:    model.CourseStatusDraft,
+		CreatorID:  uuid.New(),
+		Title:      "Dup",
+		Slug:       "unique-slug",
+		Level:      model.CourseLevelBeginner,
+		Language:   "en",
+		Status:     model.CourseStatusDraft,
 		Visibility: model.CourseVisibilityPublic,
-		Currency:  "INR",
+		Currency:   "INR",
 	}
 
 	if err := repo.CreateCourse(ctx, dup); !errors.Is(err, ErrSlugTaken) {
