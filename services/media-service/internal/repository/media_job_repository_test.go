@@ -141,10 +141,10 @@ func TestJobRepositoryIdempotencyUnique(t *testing.T) {
 	ctx := context.Background()
 
 	first := &model.MediaJob{
-		VideoID:         uuid.New(),
-		JobType:         model.MediaJobVideoTranscode,
-		Status:          model.MediaJobQueued,
-		IdempotencyKey:  strPtr("dup-key"),
+		VideoID:        uuid.New(),
+		JobType:        model.MediaJobVideoTranscode,
+		Status:         model.MediaJobQueued,
+		IdempotencyKey: strPtr("dup-key"),
 	}
 
 	if err := repo.Create(ctx, first); err != nil {
@@ -154,10 +154,10 @@ func TestJobRepositoryIdempotencyUnique(t *testing.T) {
 	cleanupJob(t, pool, first.ID)
 
 	second := &model.MediaJob{
-		VideoID:         uuid.New(),
-		JobType:         model.MediaJobVideoTranscode,
-		Status:          model.MediaJobQueued,
-		IdempotencyKey:  strPtr("dup-key"),
+		VideoID:        uuid.New(),
+		JobType:        model.MediaJobVideoTranscode,
+		Status:         model.MediaJobQueued,
+		IdempotencyKey: strPtr("dup-key"),
 	}
 
 	if err := repo.Create(ctx, second); !errors.Is(err, ErrIdempotencyTaken) {
