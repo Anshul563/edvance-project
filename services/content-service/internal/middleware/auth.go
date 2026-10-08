@@ -14,8 +14,8 @@ import (
 type contextKey string
 
 const (
-	userIDContextKey  contextKey = "user_id"
-	accessTokenKey    contextKey = "access_token"
+	userIDContextKey contextKey = "user_id"
+	accessTokenKey   contextKey = "access_token"
 )
 
 // AuthConfig carries what the middleware needs to validate access tokens.

@@ -12,8 +12,8 @@ import (
 )
 
 var (
-	ErrVideoNotFound      = errors.New("video not found")
-	ErrVideoSlugTaken     = errors.New("video slug already taken")
+	ErrVideoNotFound       = errors.New("video not found")
+	ErrVideoSlugTaken      = errors.New("video slug already taken")
 	ErrVideoInvalidPublish = errors.New("video is not publishable in its current state")
 	ErrVideoInvalidStatus  = errors.New("video status update is not allowed")
 )
@@ -282,7 +282,7 @@ func (r *VideoRepository) Publish(
 		WHERE id = $1 AND status = 'ready'
 		RETURNING ` + videoColumns
 
-	return r.execLifecycle(ctx, query, id, ErrVideoInvalidPublish)
+	return r.execLifecycle(ctx, query, ErrVideoInvalidPublish, id)
 }
 
 // Unpublish flips published -> ready and takes the video off the public
@@ -301,7 +301,7 @@ func (r *VideoRepository) Unpublish(
 		WHERE id = $1 AND status = 'published'
 		RETURNING ` + videoColumns
 
-	return r.execLifecycle(ctx, query, id, ErrVideoInvalidPublish)
+	return r.execLifecycle(ctx, query, ErrVideoInvalidPublish, id)
 }
 
 // UpdateMediaStatus records pipeline progress reported by the
@@ -325,7 +325,7 @@ func (r *VideoRepository) UpdateMediaStatus(
 		  AND status IN ('draft', 'processing', 'ready')
 		RETURNING ` + videoColumns
 
-	return r.execLifecycle(ctx, query, id, ErrVideoInvalidStatus)
+	return r.execLifecycle(ctx, query, ErrVideoInvalidStatus, id, status, durationSeconds, mediaAssetID)
 }
 
 // IncrementCounters applies counter deltas supplied by internal callers
@@ -373,10 +373,10 @@ func (r *VideoRepository) IncrementCounters(
 // the viewer. A nil ViewerCreatorID means anonymous — published+public
 // only.
 type VideoFilter struct {
-	CreatorID        *uuid.UUID
-	Status           *model.VideoStatus
-	Visibility       *model.VideoVisibility
-	ViewerCreatorID  *uuid.UUID
+	CreatorID       *uuid.UUID
+	Status          *model.VideoStatus
+	Visibility      *model.VideoVisibility
+	ViewerCreatorID *uuid.UUID
 }
 
 func (f VideoFilter) where() (string, []any) {
@@ -515,10 +515,15 @@ func (r *VideoRepository) assignTags(
 func (r *VideoRepository) execLifecycle(
 	ctx context.Context,
 	query string,
-	id uuid.UUID,
 	stateErr error,
+	args ...any,
 ) (*model.Video, error) {
-	video, err := scanVideo(r.db.QueryRow(ctx, query, id))
+	id, ok := args[0].(uuid.UUID)
+	if !ok {
+		return nil, fmt.Errorf("update video: id must be a uuid")
+	}
+
+	video, err := scanVideo(r.db.QueryRow(ctx, query, args...))
 	if err != nil {
 		if isNoRows(err) {
 			if _, lookupErr := r.FindByID(ctx, id); lookupErr != nil {

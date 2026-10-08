@@ -14,13 +14,13 @@ type Page[T any] struct {
 // variables. Nothing in the service hardcodes platform policy that an
 // operator may legitimately tune.
 type Limits struct {
-	DefaultPage            int
-	MaxPage                int
+	DefaultPage             int
+	MaxPage                 int
 	MaxShortDurationSeconds int
-	MaxTitleLength         int
-	MaxDescriptionLength   int
-	MaxPostContentLength   int
-	MaxTagsPerItem         int
+	MaxTitleLength          int
+	MaxDescriptionLength    int
+	MaxPostContentLength    int
+	MaxTagsPerItem          int
 }
 
 // NormalizePagination clamps request parameters into a safe window:

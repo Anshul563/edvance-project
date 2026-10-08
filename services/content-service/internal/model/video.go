@@ -26,11 +26,11 @@ func (v VideoVisibility) Valid() bool {
 type VideoStatus string
 
 const (
-	VideoStatusDraft     VideoStatus = "draft"
+	VideoStatusDraft      VideoStatus = "draft"
 	VideoStatusProcessing VideoStatus = "processing"
-	VideoStatusReady     VideoStatus = "ready"
-	VideoStatusPublished VideoStatus = "published"
-	VideoStatusArchived  VideoStatus = "archived"
+	VideoStatusReady      VideoStatus = "ready"
+	VideoStatusPublished  VideoStatus = "published"
+	VideoStatusArchived   VideoStatus = "archived"
 )
 
 func (s VideoStatus) Valid() bool {
@@ -63,8 +63,8 @@ type Video struct {
 	Visibility VideoVisibility
 	Status     VideoStatus
 
-	MediaAssetID  *uuid.UUID
-	ThumbnailURL  *string
+	MediaAssetID    *uuid.UUID
+	ThumbnailURL    *string
 	DurationSeconds *int
 
 	ViewCount    int64

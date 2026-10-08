@@ -26,11 +26,11 @@ func (v ShortVisibility) Valid() bool {
 type ShortStatus string
 
 const (
-	ShortStatusDraft     ShortStatus = "draft"
+	ShortStatusDraft      ShortStatus = "draft"
 	ShortStatusProcessing ShortStatus = "processing"
-	ShortStatusReady     ShortStatus = "ready"
-	ShortStatusPublished ShortStatus = "published"
-	ShortStatusArchived  ShortStatus = "archived"
+	ShortStatusReady      ShortStatus = "ready"
+	ShortStatusPublished  ShortStatus = "published"
+	ShortStatusArchived   ShortStatus = "archived"
 )
 
 func (s ShortStatus) Valid() bool {

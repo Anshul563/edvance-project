@@ -13,7 +13,7 @@ import (
 )
 
 var (
-	ErrTagNotFound = errors.New("tag not found")
+	ErrTagNotFound  = errors.New("tag not found")
 	ErrTagDuplicate = errors.New("tag already exists")
 )
 

@@ -465,6 +465,17 @@ func (s *ShortService) SetMediaStatus(
 		}
 	}
 
+	// "ready" is the publishable state, and publishing also requires
+	// the media asset, so the pipeline must name it in the same
+	// callback that marks the short ready.
+	if parsed == model.ShortStatusReady && mediaAssetID == nil {
+		return nil, fmt.Errorf(
+			"%w: mediaAssetId is required when status is %q",
+			ErrInvalidInput,
+			string(model.ShortStatusReady),
+		)
+	}
+
 	short, err := s.shorts.UpdateMediaStatus(
 		ctx,
 		id,

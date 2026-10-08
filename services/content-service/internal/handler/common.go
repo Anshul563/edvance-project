@@ -47,6 +47,11 @@ func parseUUIDParam(
 	return id, true
 }
 
+// chiURLParam reads a chi route parameter, returning "" when absent.
+func chiURLParam(r *http.Request, name string) string {
+	return chi.URLParam(r, name)
+}
+
 // paginationQuery is the shared ?page=&limit= parser. Invalid values are
 // rejected loudly instead of silently corrected; the service still
 // clamps limit into the configured maximum.
@@ -229,4 +234,3 @@ func toTagResponses(tags []model.Tag) []tagResponse {
 
 	return responses
 }
-

@@ -62,41 +62,41 @@ func NewShortHandler(shorts shortService) *ShortHandler {
 }
 
 type shortResponse struct {
-	ID              string       `json:"id"`
-	CreatorID       string       `json:"creatorId"`
-	Title           string       `json:"title"`
-	Description     *string      `json:"description,omitempty"`
-	Slug            string       `json:"slug"`
-	Visibility      string       `json:"visibility"`
-	Status          string       `json:"status"`
-	MediaAssetID    *string      `json:"mediaAssetId,omitempty"`
-	ThumbnailURL    *string      `json:"thumbnailUrl,omitempty"`
-	DurationSeconds *int         `json:"durationSeconds,omitempty"`
-	ViewCount       int64        `json:"viewCount"`
-	LikeCount       int64        `json:"likeCount"`
-	CommentCount    int64        `json:"commentCount"`
-	PublishedAt     *time.Time   `json:"publishedAt,omitempty"`
-	CreatedAt       time.Time    `json:"createdAt"`
-	UpdatedAt       time.Time    `json:"updatedAt"`
+	ID              string        `json:"id"`
+	CreatorID       string        `json:"creatorId"`
+	Title           string        `json:"title"`
+	Description     *string       `json:"description,omitempty"`
+	Slug            string        `json:"slug"`
+	Visibility      string        `json:"visibility"`
+	Status          string        `json:"status"`
+	MediaAssetID    *string       `json:"mediaAssetId,omitempty"`
+	ThumbnailURL    *string       `json:"thumbnailUrl,omitempty"`
+	DurationSeconds *int          `json:"durationSeconds,omitempty"`
+	ViewCount       int64         `json:"viewCount"`
+	LikeCount       int64         `json:"likeCount"`
+	CommentCount    int64         `json:"commentCount"`
+	PublishedAt     *time.Time    `json:"publishedAt,omitempty"`
+	CreatedAt       time.Time     `json:"createdAt"`
+	UpdatedAt       time.Time     `json:"updatedAt"`
 	Tags            []tagResponse `json:"tags"`
 }
 
 func toShortResponse(short *model.Short) shortResponse {
 	response := shortResponse{
-		ID:              short.ID.String(),
-		CreatorID:       short.CreatorID.String(),
-		Title:           short.Title,
-		Description:     short.Description,
-		Slug:            short.Slug,
-		Visibility:      string(short.Visibility),
-		Status:          string(short.Status),
-		ViewCount:       short.ViewCount,
-		LikeCount:       short.LikeCount,
-		CommentCount:    short.CommentCount,
-		PublishedAt:     short.PublishedAt,
-		CreatedAt:       short.CreatedAt,
-		UpdatedAt:       short.UpdatedAt,
-		Tags:            toTagResponses(short.Tags),
+		ID:           short.ID.String(),
+		CreatorID:    short.CreatorID.String(),
+		Title:        short.Title,
+		Description:  short.Description,
+		Slug:         short.Slug,
+		Visibility:   string(short.Visibility),
+		Status:       string(short.Status),
+		ViewCount:    short.ViewCount,
+		LikeCount:    short.LikeCount,
+		CommentCount: short.CommentCount,
+		PublishedAt:  short.PublishedAt,
+		CreatedAt:    short.CreatedAt,
+		UpdatedAt:    short.UpdatedAt,
+		Tags:         toTagResponses(short.Tags),
 	}
 
 	if short.MediaAssetID != nil {
@@ -416,8 +416,8 @@ func (h *ShortHandler) Unpublish(w http.ResponseWriter, r *http.Request) {
 }
 
 // SetMediaStatus is the internal pipeline callback. It lives under
-// /internal/v1 and is guarded by the shared internal key; the API
-// gateway never proxies it.
+// /internal/* at the service root and is guarded by the shared
+// internal key; the API gateway never proxies it.
 func (h *ShortHandler) SetMediaStatus(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseUUIDParam(w, r, "shortID")
 	if !ok {

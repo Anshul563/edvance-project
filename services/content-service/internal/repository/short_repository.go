@@ -12,8 +12,8 @@ import (
 )
 
 var (
-	ErrShortNotFound      = errors.New("short not found")
-	ErrShortSlugTaken     = errors.New("short slug already taken")
+	ErrShortNotFound       = errors.New("short not found")
+	ErrShortSlugTaken      = errors.New("short slug already taken")
 	ErrShortInvalidPublish = errors.New("short is not publishable in its current state")
 	ErrShortInvalidStatus  = errors.New("short status update is not allowed")
 )
@@ -282,7 +282,7 @@ func (r *ShortRepository) Publish(
 		WHERE id = $1 AND status = 'ready'
 		RETURNING ` + shortColumns
 
-	return r.execLifecycle(ctx, query, id, ErrShortInvalidPublish)
+	return r.execLifecycle(ctx, query, ErrShortInvalidPublish, id)
 }
 
 // Unpublish flips published -> ready and takes the short off the public
@@ -301,7 +301,7 @@ func (r *ShortRepository) Unpublish(
 		WHERE id = $1 AND status = 'published'
 		RETURNING ` + shortColumns
 
-	return r.execLifecycle(ctx, query, id, ErrShortInvalidPublish)
+	return r.execLifecycle(ctx, query, ErrShortInvalidPublish, id)
 }
 
 // UpdateMediaStatus records pipeline progress reported by the
@@ -325,7 +325,7 @@ func (r *ShortRepository) UpdateMediaStatus(
 		  AND status IN ('draft', 'processing', 'ready')
 		RETURNING ` + shortColumns
 
-	return r.execLifecycle(ctx, query, id, ErrShortInvalidStatus)
+	return r.execLifecycle(ctx, query, ErrShortInvalidStatus, id, status, durationSeconds, mediaAssetID)
 }
 
 // IncrementCounters applies counter deltas supplied by internal callers
@@ -501,10 +501,15 @@ func (r *ShortRepository) assignTags(
 func (r *ShortRepository) execLifecycle(
 	ctx context.Context,
 	query string,
-	id uuid.UUID,
 	stateErr error,
+	args ...any,
 ) (*model.Short, error) {
-	short, err := scanShort(r.db.QueryRow(ctx, query, id))
+	id, ok := args[0].(uuid.UUID)
+	if !ok {
+		return nil, fmt.Errorf("update short: id must be a uuid")
+	}
+
+	short, err := scanShort(r.db.QueryRow(ctx, query, args...))
 	if err != nil {
 		if isNoRows(err) {
 			if _, lookupErr := r.FindByID(ctx, id); lookupErr != nil {

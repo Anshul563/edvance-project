@@ -47,6 +47,7 @@ type ContentConfig struct {
 	MaxPostContentLength    int
 	MaxTitleLength          int
 	MaxDescriptionLength    int
+	MaxTagsPerItem          int
 }
 
 func Load() (Config, error) {
@@ -72,6 +73,11 @@ func Load() (Config, error) {
 	}
 
 	maxPageSize, err := envInt("MAX_PAGE_SIZE", 100)
+	if err != nil {
+		return Config{}, err
+	}
+
+	maxTags, err := envInt("MAX_TAGS_PER_ITEM", 10)
 	if err != nil {
 		return Config{}, err
 	}
@@ -114,6 +120,7 @@ func Load() (Config, error) {
 			MaxPostContentLength:    5000,
 			MaxTitleLength:          200,
 			MaxDescriptionLength:    5000,
+			MaxTagsPerItem:          maxTags,
 		},
 	}
 
@@ -137,6 +144,10 @@ func Load() (Config, error) {
 		return Config{}, errors.New(
 			"MAX_PAGE_SIZE must be >= DEFAULT_PAGE_SIZE",
 		)
+	}
+
+	if cfg.Content.MaxTagsPerItem <= 0 {
+		return Config{}, errors.New("MAX_TAGS_PER_ITEM must be > 0")
 	}
 
 	return cfg, nil

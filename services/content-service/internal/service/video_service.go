@@ -88,12 +88,12 @@ func NewVideoService(
 // counters, creator_id, slug, and published_at are absent by design:
 // clients cannot set them.
 type CreateVideoInput struct {
-	Title         string
-	Description   *string
-	Visibility    string
-	MediaAssetID  *uuid.UUID
-	ThumbnailURL  *string
-	Tags          []string
+	Title        string
+	Description  *string
+	Visibility   string
+	MediaAssetID *uuid.UUID
+	ThumbnailURL *string
+	Tags         []string
 }
 
 // UpdateVideoInput mirrors create but every field is optional. A nil
@@ -451,6 +451,18 @@ func (s *VideoService) SetMediaStatus(
 
 	if durationSeconds != nil && *durationSeconds < 0 {
 		return nil, fmt.Errorf("%w: duration must be >= 0", ErrInvalidInput)
+	}
+
+	// "ready" is the publishable state, and publishing also requires
+	// the media asset. Without this gate the pipeline could report a
+	// ready video with no asset, leaving it permanently un-publishable
+	// with no way to tell which callback was incomplete.
+	if parsed == model.VideoStatusReady && mediaAssetID == nil {
+		return nil, fmt.Errorf(
+			"%w: mediaAssetId is required when status is %q",
+			ErrInvalidInput,
+			string(model.VideoStatusReady),
+		)
 	}
 
 	video, err := s.videos.UpdateMediaStatus(

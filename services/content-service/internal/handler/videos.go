@@ -62,41 +62,41 @@ func NewVideoHandler(videos videoService) *VideoHandler {
 }
 
 type videoResponse struct {
-	ID              string       `json:"id"`
-	CreatorID       string       `json:"creatorId"`
-	Title           string       `json:"title"`
-	Description     *string      `json:"description,omitempty"`
-	Slug            string       `json:"slug"`
-	Visibility      string       `json:"visibility"`
-	Status          string       `json:"status"`
-	MediaAssetID    *string      `json:"mediaAssetId,omitempty"`
-	ThumbnailURL    *string      `json:"thumbnailUrl,omitempty"`
-	DurationSeconds *int         `json:"durationSeconds,omitempty"`
-	ViewCount       int64        `json:"viewCount"`
-	LikeCount       int64        `json:"likeCount"`
-	CommentCount    int64        `json:"commentCount"`
-	PublishedAt     *time.Time   `json:"publishedAt,omitempty"`
-	CreatedAt       time.Time    `json:"createdAt"`
-	UpdatedAt       time.Time    `json:"updatedAt"`
+	ID              string        `json:"id"`
+	CreatorID       string        `json:"creatorId"`
+	Title           string        `json:"title"`
+	Description     *string       `json:"description,omitempty"`
+	Slug            string        `json:"slug"`
+	Visibility      string        `json:"visibility"`
+	Status          string        `json:"status"`
+	MediaAssetID    *string       `json:"mediaAssetId,omitempty"`
+	ThumbnailURL    *string       `json:"thumbnailUrl,omitempty"`
+	DurationSeconds *int          `json:"durationSeconds,omitempty"`
+	ViewCount       int64         `json:"viewCount"`
+	LikeCount       int64         `json:"likeCount"`
+	CommentCount    int64         `json:"commentCount"`
+	PublishedAt     *time.Time    `json:"publishedAt,omitempty"`
+	CreatedAt       time.Time     `json:"createdAt"`
+	UpdatedAt       time.Time     `json:"updatedAt"`
 	Tags            []tagResponse `json:"tags"`
 }
 
 func toVideoResponse(video *model.Video) videoResponse {
 	response := videoResponse{
-		ID:              video.ID.String(),
-		CreatorID:       video.CreatorID.String(),
-		Title:           video.Title,
-		Description:     video.Description,
-		Slug:            video.Slug,
-		Visibility:      string(video.Visibility),
-		Status:          string(video.Status),
-		ViewCount:       video.ViewCount,
-		LikeCount:       video.LikeCount,
-		CommentCount:    video.CommentCount,
-		PublishedAt:     video.PublishedAt,
-		CreatedAt:       video.CreatedAt,
-		UpdatedAt:       video.UpdatedAt,
-		Tags:            toTagResponses(video.Tags),
+		ID:           video.ID.String(),
+		CreatorID:    video.CreatorID.String(),
+		Title:        video.Title,
+		Description:  video.Description,
+		Slug:         video.Slug,
+		Visibility:   string(video.Visibility),
+		Status:       string(video.Status),
+		ViewCount:    video.ViewCount,
+		LikeCount:    video.LikeCount,
+		CommentCount: video.CommentCount,
+		PublishedAt:  video.PublishedAt,
+		CreatedAt:    video.CreatedAt,
+		UpdatedAt:    video.UpdatedAt,
+		Tags:         toTagResponses(video.Tags),
 	}
 
 	if video.MediaAssetID != nil {
@@ -442,8 +442,8 @@ func (h *VideoHandler) Unpublish(w http.ResponseWriter, r *http.Request) {
 }
 
 // SetMediaStatus is the internal pipeline callback. It lives under
-// /internal/v1 and is guarded by the shared internal key; the API
-// gateway never proxies it.
+// /internal/* at the service root and is guarded by the shared
+// internal key; the API gateway never proxies it.
 func (h *VideoHandler) SetMediaStatus(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseUUIDParam(w, r, "videoID")
 	if !ok {
