@@ -11,12 +11,14 @@ import (
 
 	"github.com/joho/godotenv"
 
+	"github.com/Anshul563/edvance-project/services/video-service/internal/client"
 	"github.com/Anshul563/edvance-project/services/video-service/internal/config"
 	"github.com/Anshul563/edvance-project/services/video-service/internal/handler"
 	"github.com/Anshul563/edvance-project/services/video-service/internal/repository"
 	"github.com/Anshul563/edvance-project/services/video-service/internal/router"
 	"github.com/Anshul563/edvance-project/services/video-service/internal/server"
 	"github.com/Anshul563/edvance-project/services/video-service/internal/service"
+	"github.com/Anshul563/edvance-project/services/video-service/internal/storage"
 )
 
 func main() {
@@ -65,17 +67,61 @@ func main() {
 	}
 	defer db.Close()
 
-	videoService := service.NewVideoService(
-		repository.NewVideoRepository(db),
-		service.TrustingAuthorization{},
-		service.TrustingAuthorization{},
+	objectStore, err := storage.NewS3(
+		cfg.Storage,
+		cfg.Upload.URLTTL,
+	)
+	if err != nil {
+		slog.Error(
+			"failed to init object storage",
+			"error",
+			err,
+		)
+		os.Exit(1)
+	}
+
+	engineClient := client.NewHTTPMediaEngineClient(
+		cfg.Engine.BaseURL,
+		cfg.Engine.Token,
+		10*time.Second,
+	)
+
+	mediaRepo := repository.NewMediaRepository(db)
+	variantRepo := repository.NewVariantRepository(db)
+	jobRepo := repository.NewProcessingRepository(db)
+	thumbnailRepo := repository.NewThumbnailRepository(db)
+	captionRepo := repository.NewCaptionRepository(db)
+
+	mediaService := service.NewMediaService(
+		mediaRepo,
+		variantRepo,
+		jobRepo,
+		thumbnailRepo,
+		captionRepo,
+		objectStore,
+		cfg.Upload,
+		cfg.Worker.MaxAttempts,
+		logger,
+	)
+
+	worker := service.NewProcessingWorker(
+		jobRepo,
+		mediaRepo,
+		objectStore,
+		engineClient,
+		cfg.Engine.CallbackURL,
+		cfg.Worker.WorkerCount,
+		cfg.Worker.MaxAttempts,
+		cfg.Worker.RetryBaseSeconds,
+		cfg.Worker.PollInterval,
+		logger,
 	)
 
 	srv := server.New(
 		cfg,
 		router.Handlers{
 			Health: handler.NewHealthHandler(db),
-			Video:  handler.NewVideoHandler(videoService),
+			Media:  handler.NewMediaHandler(mediaService),
 		},
 	)
 
@@ -88,9 +134,24 @@ func main() {
 			cfg.Port,
 			"environment",
 			cfg.AppEnv,
+			"workers",
+			cfg.Worker.WorkerCount,
 		)
 
 		serverErr <- srv.Start()
+	}()
+
+	workerCtx, workerCancel := context.WithCancel(context.Background())
+	workerErr := make(chan error, 1)
+
+	go func() {
+		slog.Info("processing worker starting")
+
+		worker.Run(workerCtx)
+
+		// Run returns only after the context is cancelled, so this
+		// channel exists to say "worker drained".
+		workerErr <- nil
 	}()
 
 	sig := make(chan os.Signal, 1)
@@ -132,7 +193,14 @@ func main() {
 			"error",
 			err,
 		)
-		os.Exit(1)
+	}
+
+	workerCancel()
+
+	select {
+	case <-workerErr:
+	case <-time.After(10 * time.Second):
+		slog.Warn("processing worker did not stop in time")
 	}
 
 	slog.Info("video service stopped")

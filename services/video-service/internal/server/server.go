@@ -27,7 +27,7 @@ func New(
 				cfg.JWT.AccessSecret,
 				cfg.JWT.Issuer,
 				cfg.JWT.Audience,
-				cfg.Internal.APIKey,
+				cfg.Internal.ServiceToken,
 			),
 		),
 
