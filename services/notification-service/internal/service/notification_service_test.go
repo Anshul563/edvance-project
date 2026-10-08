@@ -401,6 +401,7 @@ func newFixture() *fixture {
 		templateStore,
 		email,
 		notificationStore,
+		4,
 	)
 	if err != nil {
 		panic(err)

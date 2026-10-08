@@ -19,6 +19,7 @@ import (
 	"github.com/Anshul563/edvance-project/services/notification-service/internal/router"
 	"github.com/Anshul563/edvance-project/services/notification-service/internal/server"
 	"github.com/Anshul563/edvance-project/services/notification-service/internal/service"
+	"github.com/Anshul563/edvance-project/services/notification-service/internal/worker"
 )
 
 func main() {
@@ -87,6 +88,7 @@ func main() {
 		templateRepository,
 		emailProvider,
 		notificationRepository,
+		cfg.Worker.MaxAttempts,
 	)
 	if err != nil {
 		slog.Error(
@@ -136,6 +138,23 @@ func main() {
 
 	serverErr := make(chan error, 1)
 
+	// Delivery retry worker: polls due email deliveries on an interval.
+	// It stops via workerCancel before HTTP shutdown completes so no
+	// send outlives the process.
+	workerCtx, workerCancel := context.WithCancel(context.Background())
+	workerDone := make(chan struct{})
+
+	go func() {
+		defer close(workerDone)
+
+		worker.Run(
+			workerCtx,
+			deliveryService,
+			cfg.Worker.Interval,
+			cfg.Worker.Count,
+		)
+	}()
+
 	go func() {
 		slog.Info(
 			"notification service starting",
@@ -182,6 +201,14 @@ func main() {
 		10*time.Second,
 	)
 	defer shutdownCancel()
+
+	workerCancel()
+
+	select {
+	case <-workerDone:
+	case <-shutdownCtx.Done():
+		slog.Error("worker shutdown timed out")
+	}
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error(

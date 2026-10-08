@@ -47,22 +47,41 @@ func Authenticate(cfg AuthConfig) func(http.Handler) http.Handler {
 }
 
 // InternalOnly guards the service-to-service event route with a shared
-// secret until mTLS or a service mesh replaces it. Comparison is
-// constant-time. This route is never proxied by the gateway.
+// bearer token until mTLS or a service mesh replaces it. Callers send
+// `Authorization: Bearer <token>` — never a user JWT, which this route
+// would have no user to bind to anyway. The comparison is constant-time.
+// This route is never proxied by the gateway.
 func InternalOnly(apiToken string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			presented := r.Header.Get("X-Internal-Token")
-
-			if presented == "" ||
-				subtle.ConstantTimeCompare([]byte(presented), []byte(apiToken)) != 1 {
+			if !validInternalToken(r, apiToken) {
 				writeUnauthorized(w)
 				return
 			}
 
-			next.ServeHTTP(w, r.WithContext(r.Context()))
+			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+func validInternalToken(r *http.Request, apiToken string) bool {
+	header := r.Header.Get("Authorization")
+
+	scheme, value, found := strings.Cut(header, " ")
+	if !found || !strings.EqualFold(strings.TrimSpace(scheme), "bearer") {
+		return false
+	}
+
+	presented := strings.TrimSpace(value)
+
+	if presented == "" || apiToken == "" {
+		return false
+	}
+
+	return subtle.ConstantTimeCompare(
+		[]byte(presented),
+		[]byte(apiToken),
+	) == 1
 }
 
 func authenticateRequest(

@@ -397,13 +397,28 @@ func TestInternalEventAuth(t *testing.T) {
 		"/internal/v1/notifications/events",
 		strings.NewReader(body),
 	)
-	wrong.Header.Set("X-Internal-Token", "wrong")
+	wrong.Header.Set("Authorization", "Bearer wrong")
 
 	wrongRec := httptest.NewRecorder()
 	r.ServeHTTP(wrongRec, wrong)
 
 	if wrongRec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", wrongRec.Code)
+	}
+
+	// Wrong scheme rejected even with the right secret.
+	schemed := httptest.NewRequest(
+		http.MethodPost,
+		"/internal/v1/notifications/events",
+		strings.NewReader(body),
+	)
+	schemed.Header.Set("Authorization", "Token "+testInternal)
+
+	schemedRec := httptest.NewRecorder()
+	r.ServeHTTP(schemedRec, schemed)
+
+	if schemedRec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", schemedRec.Code)
 	}
 
 	// JWT (not internal token) rejected on the internal route.
@@ -427,7 +442,7 @@ func TestInternalEventAuth(t *testing.T) {
 		"/internal/v1/notifications/events",
 		strings.NewReader(body),
 	)
-	okReq.Header.Set("X-Internal-Token", testInternal)
+	okReq.Header.Set("Authorization", "Bearer "+testInternal)
 
 	okRec := httptest.NewRecorder()
 	r.ServeHTTP(okRec, okReq)
@@ -455,7 +470,30 @@ func TestInternalUnknownEvent(t *testing.T) {
 		"/internal/v1/notifications/events",
 		strings.NewReader(`{"type":"bogus","userId":"`+uuid.NewString()+`"}`),
 	)
-	req.Header.Set("X-Internal-Token", testInternal)
+	req.Header.Set("Authorization", "Bearer "+testInternal)
+
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rec.Code)
+	}
+}
+
+func TestInternalOversizedBody(t *testing.T) {
+	notifications, preferences, events := emptyStubs(uuid.New())
+	r := testRouter(notifications, preferences, events)
+
+	// 1MB cap: oversized payloads fail closed before decode.
+	big := `{"eventId":"x","type":"payment.captured","userId":"` +
+		uuid.NewString() + `","data":{"pad":"` + strings.Repeat("x", 2<<20) + `"}}`
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/internal/v1/notifications/events",
+		strings.NewReader(big),
+	)
+	req.Header.Set("Authorization", "Bearer "+testInternal)
 
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)

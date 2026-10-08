@@ -90,6 +90,7 @@ func TestNotificationFlowIntegration(t *testing.T) {
 		templateRepo,
 		provider.NewConsoleProvider(),
 		notificationRepo,
+		4,
 	)
 	if err != nil {
 		t.Fatalf("delivery service: %v", err)
@@ -174,7 +175,7 @@ func TestNotificationFlowIntegration(t *testing.T) {
 		}
 
 		if internalToken != "" {
-			req.Header.Set("X-Internal-Token", internalToken)
+			req.Header.Set("Authorization", "Bearer "+internalToken)
 		}
 
 		rec := httptest.NewRecorder()
@@ -198,7 +199,7 @@ func TestNotificationFlowIntegration(t *testing.T) {
 	eventBody := func(eventID string) string {
 		return `{"eventId":"` + eventID + `","type":"payment.captured",` +
 			`"userId":"` + userID.String() + `",` +
-			`"data":{"email":"user@example.com","amount":"₹999"}}`
+			`"data":{"email":"user@example.com","amount":"₹999","courseTitle":"Go"}}`
 	}
 
 	// Internal event without token: rejected.

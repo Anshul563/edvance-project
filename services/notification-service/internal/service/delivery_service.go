@@ -55,6 +55,7 @@ type DeliveryService struct {
 	templates     TemplateLookup
 	email         provider.EmailProvider
 	notifications NotificationLookup
+	maxAttempts   int32
 }
 
 func NewDeliveryService(
@@ -62,9 +63,14 @@ func NewDeliveryService(
 	templates TemplateLookup,
 	email provider.EmailProvider,
 	notifications NotificationLookup,
+	maxAttempts int32,
 ) (*DeliveryService, error) {
 	if deliveries == nil || templates == nil || email == nil || notifications == nil {
 		return nil, errors.New("delivery dependencies are required")
+	}
+
+	if maxAttempts < 1 {
+		return nil, errors.New("max attempts must be positive")
 	}
 
 	return &DeliveryService{
@@ -72,6 +78,7 @@ func NewDeliveryService(
 		templates:     templates,
 		email:         email,
 		notifications: notifications,
+		maxAttempts:   maxAttempts,
 	}, nil
 }
 
@@ -235,18 +242,22 @@ func (s *DeliveryService) sendEmailAttempt(
 		Body:    body,
 	})
 	if err != nil {
-		next, ok := NextRetry(delivery.AttemptCount+1, time.Now())
+		newCount := delivery.AttemptCount + 1
 
 		var retryAt *time.Time
 
-		if ok {
-			retryAt = &next
+		// Attempts past the configured max go terminally failed
+		// (nil instant); the schedule table caps the rest.
+		if newCount <= s.maxAttempts {
+			if next, ok := NextRetry(newCount, time.Now()); ok {
+				retryAt = &next
+			}
 		}
 
 		_ = s.deliveries.MarkFailed(
 			ctx,
 			delivery.ID,
-			delivery.AttemptCount+1,
+			newCount,
 			"send_failed",
 			"email provider error",
 			retryAt,

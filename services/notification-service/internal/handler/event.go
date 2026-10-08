@@ -47,7 +47,11 @@ func (h *EventHandler) Ingest(
 ) {
 	var request internalEventRequest
 
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+	// Cap inbound event payloads: events are small metadata maps, never
+	// bulk data. Oversized bodies fail closed before decode.
+	if err := json.NewDecoder(
+		http.MaxBytesReader(w, r.Body, 1<<20),
+	).Decode(&request); err != nil {
 		writeBadRequest(w, "INVALID_EVENT", "invalid request body")
 		return
 	}

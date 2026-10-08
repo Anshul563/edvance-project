@@ -45,7 +45,7 @@ func TestHandleKnownEvent(t *testing.T) {
 		EventID: "pay-event-123",
 		Type:    "payment.captured",
 		UserID:  userID,
-		Data:    map[string]string{"email": "user@example.com", "amount": "₹999"},
+		Data:    map[string]string{"email": "user@example.com", "amount": "₹999", "courseTitle": "Go"},
 	})
 	if err != nil {
 		t.Fatalf("handle: %v", err)

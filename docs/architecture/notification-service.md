@@ -59,11 +59,21 @@ a user with everything off still receives password resets and alerts.
 
 ## Retry model
 
-Attempt schedule 1m → 5m → 15m → 1h, max 4 attempts, then terminally
-failed. `ClaimDue` uses `FOR UPDATE SKIP LOCKED` so N future workers
-poll without double-sending or blocking. Invalid recipients fail
-immediately (no provider call, no retries): permanent failures must not
-consume the schedule.
+Attempt schedule 1m → 5m → 15m → 1h, max attempts configurable
+(`NOTIFICATION_MAX_ATTEMPTS`, default 4), then terminally failed.
+An in-process worker (`internal/worker`, N pollers × interval, clean
+shutdown) claims due rows via `ClaimDue` (`FOR UPDATE SKIP LOCKED`) so
+pollers never double-send or block. Invalid recipients fail immediately
+(no provider call, no retries): permanent failures must not consume
+the schedule.
+
+## Event mapping
+
+`internal/event` splits defaults per domain (`auth.go`, `course.go`,
+`learning.go`, `payment.go`, `video.go`); `handler.go` only merges and
+drives creation. Copy follows the spec's example titles/bodies with
+`{{.variable}}` interpolation; missing variables fail loudly instead of
+sending broken copy.
 
 ## Push/SMS later
 
@@ -73,7 +83,7 @@ and preference toggles — no schema or domain changes.
 
 ## Deliberate limitations (v1)
 
-- No workers (sends happen inline; retry rows await the worker).
+- Sends happen inline at creation; the worker covers scheduled retries.
 - No WebSockets/FCM/SMS, no template admin UI, no marketing types.
 - Console email prints bodies to stdout — dev only, forbidden in prod
   by config validation.

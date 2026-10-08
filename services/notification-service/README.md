@@ -40,6 +40,11 @@ SMTP_USERNAME=
 SMTP_PASSWORD=
 SMTP_FROM=
 NOTIFICATION_INTERNAL_TOKEN=   # trusted services only, never frontend
+
+# Delivery retry worker: pollers, poll period, and max send attempts.
+NOTIFICATION_WORKER_COUNT=4
+NOTIFICATION_RETRY_INTERVAL=1m
+NOTIFICATION_MAX_ATTEMPTS=4
 ```
 
 ## Endpoints (all JWT-authed, strictly per-user)
@@ -55,7 +60,7 @@ PATCH  /notifications/preferences
 GET    /health  |  GET /ready
 ```
 
-Internal (service key `X-Internal-Token`, never proxied by gateway):
+Internal (`Authorization: Bearer <token>`, never proxied by gateway):
 
 ```text
 POST /internal/v1/notifications/events
@@ -100,7 +105,7 @@ user/auth→security) gates channel rows at creation.
 
 Email failures schedule 1m → 5m → 15m → 1h, then terminally fail.
 Invalid recipients fail immediately without provider calls. `ClaimDue`
-(`FOR UPDATE SKIP LOCKED`) exposes the same path to a future worker;
+(`FOR UPDATE SKIP LOCKED`) exposes the same path to the retry worker;
 in-app rows flip to sent on store since persisting IS delivery.
 
 ## Local development

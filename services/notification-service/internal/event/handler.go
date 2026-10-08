@@ -7,7 +7,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/Anshul563/edvance-project/services/notification-service/internal/model"
-	"github.com/Anshul563/edvance-project/services/notification-service/internal/ntype"
 	"github.com/Anshul563/edvance-project/services/notification-service/internal/service"
 )
 
@@ -29,7 +28,9 @@ type Creator interface {
 // Defaults maps event types to their out-of-the-box content, channels,
 // and priority. DB templates override title/subject/body at send time;
 // these defaults guarantee every known event renders even with an empty
-// template table.
+// template table. Per-domain mappings live in auth.go, course.go,
+// learning.go, payment.go, and video.go; this aggregator only merges
+// them so Handle stays transport logic.
 type Defaults struct {
 	Title    string
 	Body     string
@@ -37,37 +38,28 @@ type Defaults struct {
 	Priority model.Priority
 }
 
+func inAppEmail() []model.Channel {
+	return []model.Channel{model.ChannelInApp, model.ChannelEmail}
+}
+
+func inAppOnly() []model.Channel {
+	return []model.Channel{model.ChannelInApp}
+}
+
 func defaultsFor(notificationType string) (Defaults, bool) {
-	inAppEmail := []model.Channel{model.ChannelInApp, model.ChannelEmail}
-	inApp := []model.Channel{model.ChannelInApp}
-
-	defaults := map[string]Defaults{
-		ntype.UserEmailVerified: {"Email verified", "Your email address is verified.", inAppEmail, model.PriorityNormal},
-		ntype.AuthPasswordReset: {"Password reset", "Use the link we emailed you to choose a new password.", inAppEmail, model.PriorityHigh},
-		ntype.AuthSecurityAlert: {"Security alert", "We noticed unusual activity on your account.", inAppEmail, model.PriorityCritical},
-
-		ntype.CoursePublished: {"Course published", "Your course is now live.", inAppEmail, model.PriorityNormal},
-		ntype.CourseUpdated:   {"Course updated", "A course you follow has new content.", inApp, model.PriorityLow},
-
-		ntype.LearningEnrolled:        {"You're enrolled!", "Your learning journey starts now.", inAppEmail, model.PriorityNormal},
-		ntype.LearningLessonCompleted: {"Lesson complete", "Nice progress — keep going.", inApp, model.PriorityLow},
-		ntype.LearningCourseCompleted: {"Course completed!", "You finished the course. Congratulations!", inAppEmail, model.PriorityHigh},
-
-		ntype.PaymentCreated:  {"Payment started", "Complete your payment to get access.", inApp, model.PriorityNormal},
-		ntype.PaymentCaptured: {"Payment successful", "Your payment was completed successfully.", inAppEmail, model.PriorityNormal},
-		ntype.PaymentFailed:   {"Payment failed", "Your payment could not be completed.", inAppEmail, model.PriorityHigh},
-		ntype.PaymentRefunded: {"Refund issued", "A refund was issued to your account.", inAppEmail, model.PriorityNormal},
-
-		ntype.OrderPaid:   {"Order confirmed", "Your order is confirmed.", inAppEmail, model.PriorityNormal},
-		ntype.OrderFailed: {"Order failed", "Your order could not be completed.", inAppEmail, model.PriorityHigh},
-
-		ntype.VideoProcessingCompleted: {"Video ready", "Your video finished processing.", inApp, model.PriorityNormal},
-		ntype.VideoProcessingFailed:    {"Video processing failed", "Your video could not be processed.", inApp, model.PriorityHigh},
+	for _, table := range []map[string]Defaults{
+		authDefaults(),
+		courseDefaults(),
+		learningDefaults(),
+		paymentDefaults(),
+		videoDefaults(),
+	} {
+		if def, ok := table[notificationType]; ok {
+			return def, true
+		}
 	}
 
-	def, ok := defaults[notificationType]
-
-	return def, ok
+	return Defaults{}, false
 }
 
 // Handler maps business events to notifications. Transport-independent:
