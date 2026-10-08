@@ -24,6 +24,7 @@ type ServicesConfig struct {
 	SocialURL   string
 	CommerceURL string
 	PaymentURL  string
+	NotificationURL string
 }
 
 func Load() Config {
@@ -51,6 +52,7 @@ func Load() Config {
 			SocialURL:   getEnv("SOCIAL_SERVICE_URL", "http://localhost:8088"),
 			CommerceURL: getEnv("COMMERCE_SERVICE_URL", "http://localhost:8089"),
 			PaymentURL:  getEnv("PAYMENT_SERVICE_URL", "http://localhost:8090"),
+			NotificationURL: getEnv("NOTIFICATION_SERVICE_URL", "http://localhost:8092"),
 		},
 	}
 }

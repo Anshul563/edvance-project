@@ -122,6 +122,14 @@ func registerServiceRoutes(
 		return err
 	}
 
+	notificationProxy, err := proxy.New(
+		cfg.Services.NotificationURL,
+		"/api/v1/notifications",
+	)
+	if err != nil {
+		return err
+	}
+
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Mount("/auth", authProxy)
 		r.Mount("/users", userProxy)
@@ -136,6 +144,9 @@ func registerServiceRoutes(
 		r.Mount("/social", socialProxy)
 		r.Mount("/commerce", commerceProxy)
 		r.Mount("/payments", paymentProxy)
+		// NOTE: /internal/* is deliberately never mounted. Internal
+		// service routes stay on private networking only.
+		r.Mount("/notifications", notificationProxy)
 	})
 
 	return nil

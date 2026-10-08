@@ -1,4 +1,4 @@
-module github.com/Anshul563/edvance-project/services/payment-service
+module github.com/Anshul563/edvance-project/services/notification-service
 
 go 1.26.5
 
