@@ -11,6 +11,7 @@ use (
 	./services/media-service
 	./services/notification-service
 	./services/payment-service
+	./services/social-service
 	./services/user-service
 	./services/video-service
 )
