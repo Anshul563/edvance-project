@@ -174,6 +174,14 @@ func registerServiceRoutes(
 		return err
 	}
 
+	adminProxy, err := proxy.New(
+		cfg.Services.AdminURL,
+		"/api/v1/admin",
+	)
+	if err != nil {
+		return err
+	}
+
 	liveProxy, err := proxy.New(
 		cfg.Services.LiveStreamingURL,
 		"/api/v1/live",
@@ -212,6 +220,7 @@ func registerServiceRoutes(
 		r.Mount("/moderation", moderationProxy)
 		r.Mount("/ai", aiProxy)
 		r.Mount("/analytics", analyticsProxy)
+		r.Mount("/admin", adminProxy)
 		r.Mount("/live", liveProxy)
 		r.Mount("/streams", streamProxy)
 	})
