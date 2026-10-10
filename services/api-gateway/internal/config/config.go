@@ -28,6 +28,7 @@ type ServicesConfig struct {
 	SearchURL         string
 	RecommendationURL string
 	ModerationURL     string
+	AIURL             string
 }
 
 func Load() Config {
@@ -59,6 +60,7 @@ func Load() Config {
 			SearchURL:         getEnv("SEARCH_SERVICE_URL", "http://localhost:8091"),
 			RecommendationURL: getEnv("RECOMMENDATION_SERVICE_URL", "http://localhost:8093"),
 			ModerationURL:     getEnv("MODERATION_SERVICE_URL", "http://localhost:8094"),
+			AIURL:             getEnv("AI_SERVICE_URL", "http://localhost:8095"),
 		},
 	}
 }

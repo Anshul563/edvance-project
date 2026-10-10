@@ -158,6 +158,14 @@ func registerServiceRoutes(
 		return err
 	}
 
+	aiProxy, err := proxy.New(
+		cfg.Services.AIURL,
+		"/api/v1/ai",
+	)
+	if err != nil {
+		return err
+	}
+
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Mount("/auth", authProxy)
 		r.Mount("/users", userProxy)
@@ -178,6 +186,7 @@ func registerServiceRoutes(
 		r.Mount("/search", searchProxy)
 		r.Mount("/recommendations", recommendationProxy)
 		r.Mount("/moderation", moderationProxy)
+		r.Mount("/ai", aiProxy)
 	})
 
 	return nil
