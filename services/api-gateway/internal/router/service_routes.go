@@ -130,6 +130,18 @@ func registerServiceRoutes(
 		return err
 	}
 
+	// Search-service owns discovery. The gateway forwards
+	// /api/v1/search/* with the prefix stripped, so the
+	// service sees /?q=... — it also serves the full path
+	// for direct callers.
+	searchProxy, err := proxy.New(
+		cfg.Services.SearchURL,
+		"/api/v1/search",
+	)
+	if err != nil {
+		return err
+	}
+
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Mount("/auth", authProxy)
 		r.Mount("/users", userProxy)
@@ -147,6 +159,7 @@ func registerServiceRoutes(
 		// NOTE: /internal/* is deliberately never mounted. Internal
 		// service routes stay on private networking only.
 		r.Mount("/notifications", notificationProxy)
+		r.Mount("/search", searchProxy)
 	})
 
 	return nil
