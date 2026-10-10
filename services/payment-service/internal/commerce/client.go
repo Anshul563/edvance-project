@@ -15,4 +15,5 @@ type Client interface {
 	GetOrder(ctx context.Context, orderID uuid.UUID) (*Order, error)
 	MarkOrderPaid(ctx context.Context, request MarkOrderPaidRequest) error
 	MarkOrderFailed(ctx context.Context, request MarkOrderFailedRequest) error
+	MarkOrderRefunded(ctx context.Context, request MarkOrderRefundedRequest) error
 }

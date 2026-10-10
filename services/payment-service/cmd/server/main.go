@@ -104,6 +104,7 @@ func main() {
 		refundRepository,
 		paymentRepository,
 		razorpayClient,
+		commerceClient,
 	)
 	if err != nil {
 		slog.Error(

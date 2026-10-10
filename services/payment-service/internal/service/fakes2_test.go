@@ -26,6 +26,7 @@ type fakeRefundStore struct {
 	byID   map[uuid.UUID]*model.Refund
 	byProv map[string]*model.Refund
 	byPay  map[uuid.UUID][]*model.Refund
+	byKey  map[string]*model.Refund
 }
 
 func newFakeRefundStore() *fakeRefundStore {
@@ -33,6 +34,7 @@ func newFakeRefundStore() *fakeRefundStore {
 		byID:   make(map[uuid.UUID]*model.Refund),
 		byProv: make(map[string]*model.Refund),
 		byPay:  make(map[uuid.UUID][]*model.Refund),
+		byKey:  make(map[string]*model.Refund),
 	}
 }
 
@@ -44,12 +46,36 @@ func (f *fakeRefundStore) CreateRefund(
 	defer f.mu.Unlock()
 
 	refund.ID = uuid.New()
+	if refund.IdempotencyKey != nil {
+		key := refund.PaymentID.String() + ":" + *refund.IdempotencyKey
+		if _, exists := f.byKey[key]; exists {
+			return repository.ErrRefundIdempotencyKeyTaken
+		}
+	}
 
 	stored := *refund
 	f.byID[refund.ID] = &stored
 	f.byPay[refund.PaymentID] = append(f.byPay[refund.PaymentID], &stored)
+	if refund.IdempotencyKey != nil {
+		f.byKey[refund.PaymentID.String()+":"+*refund.IdempotencyKey] = &stored
+	}
 
 	return nil
+}
+
+func (f *fakeRefundStore) FindRefundByPaymentIdempotencyKey(
+	_ context.Context,
+	paymentID uuid.UUID,
+	key string,
+) (*model.Refund, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	refund, ok := f.byKey[paymentID.String()+":"+key]
+	if !ok {
+		return nil, repository.ErrRefundNotFound
+	}
+	copy := *refund
+	return &copy, nil
 }
 
 func (f *fakeRefundStore) FindRefundByID(
@@ -124,6 +150,25 @@ func (f *fakeRefundStore) MarkRefundProcessed(
 	refund.ProviderRefundID = &providerRefundID
 	f.byProv[providerRefundID] = refund
 
+	return nil
+}
+
+func (f *fakeRefundStore) SetProviderRefundID(
+	_ context.Context,
+	id uuid.UUID,
+	providerRefundID string,
+) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	refund, ok := f.byID[id]
+	if !ok {
+		return repository.ErrRefundNotFound
+	}
+	if refund.Status != model.RefundCreated {
+		return repository.ErrRefundConflict
+	}
+	refund.ProviderRefundID = &providerRefundID
+	f.byProv[providerRefundID] = refund
 	return nil
 }
 

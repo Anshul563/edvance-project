@@ -25,32 +25,12 @@ services:
     restart: unless-stopped
     ports:
       - "${REDIS_PORT:-6379}:6379"
-    volumes:
-      - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 20
       start_period: 5s
-
-  nats:
-    image: nats:2.10.27-alpine
-    container_name: edvance-nats
-    profiles: ["nats"]
-    command: ["-js", "-m", "8222"]
-    ports:
-      - "${NATS_PORT:-4222}:4222"
-      - "${NATS_MONITOR_PORT:-8222}:8222"
-    volumes:
-      - nats_data:/data
-    healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost 4222 || exit 1"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-      start_period: 5s
-    restart: unless-stopped
 
   api-gateway:
     build:
@@ -105,7 +85,7 @@ services:
     environment:
       APP_ENV: ${APP_ENV:-development}
       ADMIN_API_PORT: "8098"
-      DATABASE_URL: ${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/edvance_admin?sslmode=disable}
+      DATABASE_URL: ${DATABASE_URL:-postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/edvance_admin?sslmode=disable}
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev-local-jwt-secret}
       JWT_ISSUER: ${JWT_ISSUER:-edvance-auth}
       JWT_AUDIENCE: ${JWT_AUDIENCE:-edvance-api}
@@ -150,7 +130,7 @@ services:
     environment:
       APP_ENV: ${APP_ENV:-development}
       AUTH_SERVICE_PORT: "8081"
-      DATABASE_URL: ${AUTH_DATABASE_URL:-postgres://postgres:postgres@postgres:5432/edvance_auth?sslmode=disable}
+      DATABASE_URL: ${AUTH_DATABASE_URL:-postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/edvance_auth?sslmode=disable}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev-local-jwt-secret}
       JWT_ISSUER: ${JWT_ISSUER:-edvance-auth}
@@ -188,7 +168,7 @@ services:
     environment:
       APP_ENV: ${APP_ENV:-development}
       ANALYTICS_SERVICE_PORT: "8097"
-      DATABASE_URL: ${ANALYTICS_DATABASE_URL:-postgres://postgres:postgres@postgres:5432/edvance_analytics?sslmode=disable}
+      DATABASE_URL: ${ANALYTICS_DATABASE_URL:-postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/edvance_analytics?sslmode=disable}
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev-local-jwt-secret}
       JWT_ISSUER: ${JWT_ISSUER:-edvance-auth}
       JWT_AUDIENCE: ${JWT_AUDIENCE:-edvance-api}
@@ -215,7 +195,7 @@ services:
     environment:
       APP_ENV: ${APP_ENV:-development}
       RECOMMENDATION_SERVICE_PORT: "8093"
-      DATABASE_URL: ${RECOMMENDATION_DATABASE_URL:-postgresql+asyncpg://postgres:postgres@postgres:5432/edvance_recommendation}
+      DATABASE_URL: ${RECOMMENDATION_DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/edvance_recommendation}
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev-local-jwt-secret}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-local-service-token}
       SEARCH_SERVICE_URL: "http://search-service:8091"
@@ -244,7 +224,7 @@ services:
     environment:
       APP_ENV: ${APP_ENV:-development}
       MODERATION_SERVICE_PORT: "8094"
-      DATABASE_URL: ${MODERATION_DATABASE_URL:-postgresql+asyncpg://postgres:postgres@postgres:5432/edvance_moderation}
+      DATABASE_URL: ${MODERATION_DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/edvance_moderation}
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev-local-jwt-secret}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-local-service-token}
       API_GATEWAY_URL: "http://api-gateway:8080"
@@ -265,7 +245,129 @@ services:
       retries: 12
       start_period: 15s
 
+  course-service:
+    profiles: ["purchase"]
+    build:
+      context: ../../services/course-service
+      dockerfile: Dockerfile
+    image: edvance/course-service:local
+    container_name: edvance-course-service
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      COURSE_SERVICE_PORT: "8086"
+      DATABASE_URL: ${COURSE_DATABASE_URL:-postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/edvance_course?sslmode=disable}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev-local-jwt-secret}
+      JWT_ISSUER: ${JWT_ISSUER:-edvance-auth}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-edvance-api}
+    ports:
+      - "8086:8086"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8086/health >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  learning-service:
+    profiles: ["purchase"]
+    build:
+      context: ../../services/learning-service
+      dockerfile: Dockerfile
+    image: edvance/learning-service:local
+    container_name: edvance-learning-service
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      LEARNING_SERVICE_PORT: "8087"
+      DATABASE_URL: ${LEARNING_DATABASE_URL:-postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/edvance_learning?sslmode=disable}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev-local-jwt-secret}
+      JWT_ISSUER: ${JWT_ISSUER:-edvance-auth}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-edvance-api}
+      COURSE_SERVICE_URL: "http://course-service:8086"
+      LEARNING_SERVICE_INTERNAL_TOKEN: ${LEARNING_SERVICE_INTERNAL_TOKEN:-dev-local-learning-token}
+    ports:
+      - "8087:8087"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      course-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8087/health >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  commerce-service:
+    profiles: ["purchase"]
+    build:
+      context: ../../services/commerce-service
+      dockerfile: Dockerfile
+    image: edvance/commerce-service:local
+    container_name: edvance-commerce-service
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      COMMERCE_SERVICE_PORT: "8089"
+      DATABASE_URL: ${COMMERCE_DATABASE_URL:-postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/edvance_commerce?sslmode=disable}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev-local-jwt-secret}
+      JWT_ISSUER: ${JWT_ISSUER:-edvance-auth}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-edvance-api}
+      COURSE_SERVICE_URL: "http://course-service:8086"
+      LEARNING_SERVICE_URL: "http://learning-service:8087"
+      LEARNING_SERVICE_INTERNAL_TOKEN: ${LEARNING_SERVICE_INTERNAL_TOKEN:-dev-local-learning-token}
+      COMMERCE_SERVICE_INTERNAL_TOKEN: ${COMMERCE_SERVICE_INTERNAL_TOKEN:-dev-local-commerce-token}
+    ports:
+      - "8089:8089"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      course-service:
+        condition: service_healthy
+      learning-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8089/health >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  payment-service:
+    profiles: ["payment"]
+    build:
+      context: ../../services/payment-service
+      dockerfile: Dockerfile
+    image: edvance/payment-service:local
+    container_name: edvance-payment-service
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      PAYMENT_SERVICE_PORT: "8090"
+      DATABASE_URL: ${PAYMENT_DATABASE_URL:-postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/edvance_payment?sslmode=disable}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev-local-jwt-secret}
+      JWT_ISSUER: ${JWT_ISSUER:-edvance-auth}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-edvance-api}
+      COMMERCE_SERVICE_URL: "http://commerce-service:8089"
+      COMMERCE_SERVICE_INTERNAL_TOKEN: ${COMMERCE_SERVICE_INTERNAL_TOKEN:-dev-local-commerce-token}
+      RAZORPAY_BASE_URL: ${RAZORPAY_BASE_URL:-https://api.razorpay.com}
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
+      RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-}
+    ports:
+      - "8090:8090"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      commerce-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8090/health >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
 volumes:
   postgres_data:
-  redis_data:
-  nats_data:

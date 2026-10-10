@@ -30,6 +30,7 @@ var (
 	ErrProvisionFailed        = errors.New("enrollment provisioning failed")
 	ErrEmptyOrder             = errors.New("order must contain at least one course")
 	ErrCurrencyMismatch       = errors.New("mixed currencies not supported")
+	ErrIdempotencyConflict    = errors.New("idempotency key reused with different checkout request")
 )
 
 // CourseStore is the read contract against course-service.

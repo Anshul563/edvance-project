@@ -15,11 +15,13 @@ import (
 
 func TestProvisionSuccess(t *testing.T) {
 	var gotBody string
+	var gotInternalKey string
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/internal/enrollments" || r.Method != http.MethodPost {
 			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
 		}
+		gotInternalKey = r.Header.Get("X-Internal-Key")
 
 		raw, _ := io.ReadAll(r.Body)
 		gotBody = string(raw)
@@ -28,7 +30,7 @@ func TestProvisionSuccess(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewHTTPProvisioner(server.URL, 5*time.Second)
+	client := NewHTTPProvisioner(server.URL, "learning-internal-test-key", 5*time.Second)
 
 	userID := uuid.New()
 	courseID := uuid.New()
@@ -42,6 +44,9 @@ func TestProvisionSuccess(t *testing.T) {
 			t.Fatalf("expected %s in %s", want, gotBody)
 		}
 	}
+	if gotInternalKey != "learning-internal-test-key" {
+		t.Fatalf("expected internal auth header, got %q", gotInternalKey)
+	}
 }
 
 func TestProvisionFailures(t *testing.T) {
@@ -51,7 +56,7 @@ func TestProvisionFailures(t *testing.T) {
 		}))
 		defer server.Close()
 
-		client := NewHTTPProvisioner(server.URL, 5*time.Second)
+		client := NewHTTPProvisioner(server.URL, "learning-internal-test-key", 5*time.Second)
 
 		if err := client.ProvisionEnrollment(
 			context.Background(),
@@ -69,7 +74,7 @@ func TestProvisionFailures(t *testing.T) {
 		}))
 		defer server.Close()
 
-		client := NewHTTPProvisioner(server.URL, 50*time.Millisecond)
+		client := NewHTTPProvisioner(server.URL, "learning-internal-test-key", 50*time.Millisecond)
 
 		if err := client.ProvisionEnrollment(
 			context.Background(),
@@ -82,7 +87,7 @@ func TestProvisionFailures(t *testing.T) {
 	})
 
 	t.Run("unreachable", func(t *testing.T) {
-		client := NewHTTPProvisioner("http://127.0.0.1:1", time.Second)
+		client := NewHTTPProvisioner("http://127.0.0.1:1", "learning-internal-test-key", time.Second)
 
 		if err := client.ProvisionEnrollment(
 			context.Background(),

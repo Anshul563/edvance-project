@@ -17,11 +17,12 @@ Default profile:
 
 Optional profile:
 
-- NATS JetStream (`--profile nats`)
+- Course, Learning, and Commerce Services (`--profile purchase`).
+- Payment Service (`--profile payment`), requiring Razorpay test credentials in `.env`.
 
 Unsupported by default:
 
-- User, Creator, Course, Commerce, Payment, Search, Notification, Media, Video, and Live Streaming services are present in the repo, but they are not included in the default Compose profile because this stack is intentionally limited to services with reliable local startup and known configuration.
+- User, Creator, Search, Notification, Media, Video, and Live Streaming services are present in the repo, but not included in the default Compose profile because this stack is intentionally limited to verified startup paths.
 - AI service is present but intentionally excluded from the default profile because it is not yet part of the verified default local workflow.
 
 ## Prerequisites
@@ -43,19 +44,13 @@ The `.env` file is local-only and is ignored by git. Do not commit credentials o
 ## Start infrastructure
 
 ```bash
-docker compose --env-file .env -f infrastructure/docker/docker-compose.yml up -d postgres redis
-```
-
-Optional NATS profile:
-
-```bash
-docker compose --env-file .env -f infrastructure/docker/docker-compose.yml --profile nats up -d nats
+make infra-up
 ```
 
 ## Start the default application stack
 
 ```bash
-docker compose --env-file .env -f infrastructure/docker/docker-compose.yml up -d api-gateway admin-api auth-service analytics-service recommendation-service moderation-service
+make app-up
 ```
 
 These services use Compose DNS hostnames instead of `localhost` so the containers can resolve one another correctly.
@@ -69,6 +64,21 @@ make migrate
 ```
 
 This runs the SQL migrations for the included Go services and the Alembic migrations for the included Python services.
+
+## Run the purchase and learning workflow
+
+The purchase stack is optional and intentionally separate from the default stack. First set `LEARNING_SERVICE_INTERNAL_TOKEN` and `COMMERCE_SERVICE_INTERNAL_TOKEN` in `.env` to local development values. To exercise real provider checkout callbacks, configure Razorpay test-mode credentials and a webhook endpoint at `http://localhost:8090/webhooks/razorpay`.
+
+```bash
+make migrate
+make purchase-up
+```
+
+Course Service has no global public catalog list; the available discovery contract is `GET /api/v1/courses/creator/{creatorID}` plus `GET /api/v1/courses/{courseID}`. The learner creates an order with `POST /api/v1/commerce/orders`. Send an `Idempotency-Key` header when creating orders; identical retries return the original order, and a reused key with a different course/coupon payload is rejected. Start payment with `POST /api/v1/payments/` using the returned `commerceOrderId`; verify the provider callback with `POST /api/v1/payments/verify`. Payment status is read with `GET /api/v1/payments/{paymentID}` or `GET /api/v1/payments/order/{commerceOrderID}`. Refunds use `POST /api/v1/payments/{paymentID}/refund` with a required `Idempotency-Key`; repeating the same key will not call the provider twice. Purchase history is `GET /api/v1/commerce/purchases`; enrolled learning access is `GET /api/v1/learning/courses/{courseID}/enrollment` and learning progress routes.
+
+For free published courses, use `POST /api/v1/learning/courses/{courseID}/enroll`; this direct free path does not create a payment or paid purchase.
+
+Only public gateway routes are exposed. Internal Commerce and Learning enrollment/refund callbacks require `X-Internal-Key` and are not mounted by the gateway. A confirmed refund updates Commerce order/purchase state; it does not automatically revoke an existing Learning enrollment. Unknown provider outcomes remain reserved and are not retried as a second provider operation; replay the same key to inspect the pending state and reconcile it through the provider webhook.
 
 ## Check service status and logs
 
@@ -87,8 +97,8 @@ make infra-config
 
 The default profile exposes:
 
-- PostgreSQL: `http://localhost:5432` (database port, for client connections)
-- Redis: `http://localhost:6379` (Redis port)
+- PostgreSQL: `localhost:5432` (database TCP endpoint)
+- Redis: `localhost:6379` (Redis TCP endpoint)
 - API Gateway: `http://localhost:8080/health`
 - Admin API: `http://localhost:8098/health`
 - Auth Service: `http://localhost:8081/health`
@@ -96,7 +106,7 @@ The default profile exposes:
 - Recommendation Service: `http://localhost:8093/health`
 - Moderation Service: `http://localhost:8094/health`
 
-NATS monitoring is available at `http://localhost:8222` when the optional `nats` profile is enabled.
+Purchase profile health endpoints are Course `http://localhost:8086/health`, Learning `http://localhost:8087/health`, Commerce `http://localhost:8089/health`, and Payment `http://localhost:8090/health`.
 
 ## Running tests locally
 
@@ -112,7 +122,7 @@ This includes the verified Go and Python test suites in the repo.
 make build
 ```
 
-This builds the Go modules and also performs Docker image builds for the supported default applications.
+This builds the Go modules and Docker images for the default stack and purchase services. Payment Service requires Razorpay test credentials to start, but credentials are not needed to build it.
 
 ## Stop the stack
 
@@ -128,7 +138,7 @@ Stop and remove persistent volumes (destructive):
 docker compose --env-file .env -f infrastructure/docker/docker-compose.yml down -v
 ```
 
-> Warning: `down -v` deletes the local PostgreSQL and Redis data volumes. Only use it when you intentionally want to reset local development data.
+> Warning: `down -v` deletes the local PostgreSQL data volume. Redis is intentionally ephemeral and has no persistent volume.
 
 ## Reset development data
 
@@ -144,11 +154,12 @@ If you want to keep your local data, run the non-destructive stop above instead.
 
 Common startup issues:
 
-- If Docker reports a port conflict, change the host ports in `.env` before starting the stack.
+- If PostgreSQL or Redis reports a port conflict, change `POSTGRES_PORT` or `REDIS_PORT` in `.env`. Application host ports are declared in `infrastructure/docker/docker-compose.yml` and must be changed there.
 - If a service fails because a database is missing, re-run `make migrate` after the PostgreSQL container is healthy.
 - If a service exits early, inspect its logs with `make infra-logs` and check the `.env` file entries for the relevant URLs and secrets.
 - If Compose fails to parse, run `make infra-config` to surface the exact config problem.
-- If you are starting the optional NATS profile, include `--profile nats` explicitly.
+- If Payment Service exits at startup, verify `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, and `RAZORPAY_WEBHOOK_SECRET` are set to test-mode values; empty defaults deliberately fail closed.
+- If Commerce reports a 401 while provisioning Learning, ensure both services use the same `LEARNING_SERVICE_INTERNAL_TOKEN` value.
 
 ## Service ownership and constraints
 
@@ -156,7 +167,7 @@ The local stack reflects real, verified service ownership and startup behavior i
 
 - PostgreSQL is the shared local datastore for the default services.
 - Redis is required by the Auth Service.
-- NATS is optional and not required by the default stack.
+- No current purchase-path service uses NATS, so NATS is not provisioned by this Compose stack.
 - Services outside the default profile are not started automatically because they were not part of the verified default local workflow.
 
 ## Useful commands

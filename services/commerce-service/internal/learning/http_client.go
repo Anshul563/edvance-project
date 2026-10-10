@@ -24,17 +24,19 @@ var ErrProvisionFailed = errors.New("learning provisioning failed")
 // future payment-service/commerce event flow will replace the transport,
 // not the interface.
 type HTTPProvisioner struct {
-	baseURL string
-	client  *http.Client
+	baseURL       string
+	internalToken string
+	client        *http.Client
 }
 
-func NewHTTPProvisioner(baseURL string, timeout time.Duration) *HTTPProvisioner {
+func NewHTTPProvisioner(baseURL string, internalToken string, timeout time.Duration) *HTTPProvisioner {
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
 
 	return &HTTPProvisioner{
-		baseURL: strings.TrimRight(baseURL, "/"),
+		baseURL:       strings.TrimRight(baseURL, "/"),
+		internalToken: internalToken,
 		client: &http.Client{
 			Timeout: timeout,
 		},
@@ -67,6 +69,7 @@ func (p *HTTPProvisioner) ProvisionEnrollment(
 	}
 
 	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Internal-Key", p.internalToken)
 
 	response, err := p.client.Do(request)
 	if err != nil {

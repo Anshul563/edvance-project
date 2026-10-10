@@ -5,6 +5,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"sync"
 	"testing"
@@ -16,7 +17,7 @@ import (
 	"github.com/Anshul563/edvance-project/services/payment-service/internal/model"
 )
 
-// Needs PostgreSQL with migration 001 applied to edvance_payment:
+// Needs PostgreSQL with migrations 001 and 002 applied to edvance_payment:
 //
 //	DATABASE_URL=postgres://... go test -tags integration ./internal/repository/
 func newTestPool(t *testing.T) *pgxpool.Pool {
@@ -355,6 +356,49 @@ func TestRefundRepositoryFlow(t *testing.T) {
 
 	if found.ID != refund.ID {
 		t.Fatal("wrong refund")
+	}
+}
+
+func TestRefundReservationDoesNotOverrunUnderConcurrency(t *testing.T) {
+	pool := newTestPool(t)
+	repo := NewRefundRepository(pool)
+	payment := seedPayment(t, pool, model.PaymentCaptured)
+
+	const attempts = 2
+	results := make(chan error, attempts)
+	var wg sync.WaitGroup
+	for i := 0; i < attempts; i++ {
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
+			key := fmt.Sprintf("reserve-%d", index)
+			refund := &model.Refund{
+				PaymentID:      payment.ID,
+				IdempotencyKey: &key,
+				AmountCents:    60000,
+				Currency:       "INR",
+				Status:         model.RefundCreated,
+			}
+			results <- repo.CreateRefund(context.Background(), refund)
+		}(i)
+	}
+	wg.Wait()
+	close(results)
+
+	succeeded := 0
+	rejected := 0
+	for err := range results {
+		switch {
+		case err == nil:
+			succeeded++
+		case errors.Is(err, ErrRefundAmountExceeded):
+			rejected++
+		default:
+			t.Fatalf("unexpected refund reservation error: %v", err)
+		}
+	}
+	if succeeded != 1 || rejected != 1 {
+		t.Fatalf("want one reservation and one over-limit rejection; succeeded=%d rejected=%d", succeeded, rejected)
 	}
 }
 

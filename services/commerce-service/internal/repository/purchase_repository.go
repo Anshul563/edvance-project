@@ -15,8 +15,9 @@ import (
 )
 
 var (
-	ErrPurchaseNotFound = errors.New("purchase not found")
-	ErrPurchaseExists   = errors.New("purchase already exists")
+	ErrPurchaseNotFound   = errors.New("purchase not found")
+	ErrPurchaseExists     = errors.New("purchase already exists")
+	ErrInvalidRefundTotal = errors.New("invalid cumulative refund total")
 )
 
 type PurchaseRepository struct {
@@ -445,6 +446,69 @@ func (r *PurchaseRepository) CompleteOrderTx(
 	order.UpdatedAt = now
 
 	return order, purchases, false, nil
+}
+
+func (r *PurchaseRepository) CompleteRefundTx(
+	ctx context.Context,
+	orderID uuid.UUID,
+	refundedTotalCents int64,
+) (*model.Order, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("complete refund: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	order := &model.Order{}
+	if err := tx.QueryRow(ctx,
+		`SELECT `+orderColumns+` FROM orders WHERE id = $1 FOR UPDATE`,
+		orderID,
+	).Scan(scanOrderArgs(order)...); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrOrderNotFound
+		}
+		return nil, fmt.Errorf("complete refund: lock order: %w", err)
+	}
+	if refundedTotalCents <= 0 || refundedTotalCents > order.TotalCents {
+		return nil, ErrInvalidRefundTotal
+	}
+
+	next := model.OrderPartiallyRefunded
+	if refundedTotalCents == order.TotalCents {
+		next = model.OrderRefunded
+	}
+	if order.Status == next {
+		if err := tx.Commit(ctx); err != nil {
+			return nil, fmt.Errorf("complete refund: commit replay: %w", err)
+		}
+		return order, nil
+	}
+	if !CanTransition(order.Status, next) {
+		return nil, ErrInvalidOrderState
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE orders SET status = $2, updated_at = NOW() WHERE id = $1`,
+		orderID,
+		next,
+	); err != nil {
+		return nil, fmt.Errorf("complete refund: update order: %w", err)
+	}
+	if next == model.OrderRefunded {
+		if _, err := tx.Exec(ctx,
+			`UPDATE purchases SET status = $2, refunded_at = NOW(), updated_at = NOW()
+			 WHERE order_id = $1 AND status = $3`,
+			orderID,
+			model.PurchaseRefunded,
+			model.PurchaseActive,
+		); err != nil {
+			return nil, fmt.Errorf("complete refund: update purchases: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("complete refund: commit: %w", err)
+	}
+	order.Status = next
+	return order, nil
 }
 
 func (r *PurchaseRepository) listOrderPurchasesTx(

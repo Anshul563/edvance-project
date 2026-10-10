@@ -34,3 +34,8 @@ type MarkOrderFailedRequest struct {
 	OrderID uuid.UUID
 	Reason  string
 }
+
+type MarkOrderRefundedRequest struct {
+	OrderID            uuid.UUID
+	RefundedTotalCents int64
+}

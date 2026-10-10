@@ -53,6 +53,10 @@ func New(
 				"/{orderID}/failed",
 				handlers.Internal.MarkFailed,
 			)
+			r.With(internalMiddleware).Post(
+				"/{orderID}/refunded",
+				handlers.Internal.MarkRefunded,
+			)
 		})
 	})
 

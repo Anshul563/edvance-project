@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -24,6 +26,11 @@ type OrderStore interface {
 		items []repository.OrderItemInput,
 		couponID *uuid.UUID,
 	) error
+	FindOrderByUserIdempotencyKey(
+		ctx context.Context,
+		userID uuid.UUID,
+		key string,
+	) (*model.Order, error)
 	FindOrderByID(ctx context.Context, id uuid.UUID) (*model.Order, error)
 	ListOrderItems(ctx context.Context, orderID uuid.UUID) ([]*model.OrderItem, error)
 	ListOrdersByUser(
@@ -109,6 +116,16 @@ func (s *OrderService) CreateOrder(
 	courseIDs []uuid.UUID,
 	couponCode string,
 ) (*model.Order, []*model.OrderItem, error) {
+	return s.CreateOrderWithIdempotencyKey(ctx, userID, courseIDs, couponCode, "")
+}
+
+func (s *OrderService) CreateOrderWithIdempotencyKey(
+	ctx context.Context,
+	userID uuid.UUID,
+	courseIDs []uuid.UUID,
+	couponCode string,
+	idempotencyKey string,
+) (*model.Order, []*model.OrderItem, error) {
 	if userID == uuid.Nil {
 		return nil, nil, errors.New("user id is required")
 	}
@@ -117,6 +134,26 @@ func (s *OrderService) CreateOrder(
 
 	if len(unique) == 0 {
 		return nil, nil, ErrEmptyOrder
+	}
+
+	idempotencyKey = strings.TrimSpace(idempotencyKey)
+	var fingerprint *string
+	if idempotencyKey != "" {
+		if len(idempotencyKey) > 200 {
+			return nil, nil, errors.New("idempotency key exceeds 200 characters")
+		}
+		value := checkoutFingerprint(unique, couponCode)
+		fingerprint = &value
+		existing, err := s.orders.FindOrderByUserIdempotencyKey(ctx, userID, idempotencyKey)
+		if err == nil {
+			if existing.RequestFingerprint == nil || *existing.RequestFingerprint != value {
+				return nil, nil, ErrIdempotencyConflict
+			}
+			return s.loadOrderWithItems(ctx, existing.ID)
+		}
+		if !errors.Is(err, repository.ErrOrderNotFound) {
+			return nil, nil, fmt.Errorf("find checkout retry: %w", err)
+		}
 	}
 
 	priced, err := s.priceCourses(ctx, userID, unique)
@@ -177,14 +214,16 @@ func (s *OrderService) CreateOrder(
 	items := distributeDiscount(priced, discount, currency)
 
 	order := &model.Order{
-		UserID:        userID,
-		Status:        model.OrderPendingPayment,
-		Currency:      currency,
-		SubtotalCents: subtotal,
-		DiscountCents: discount,
-		TaxCents:      taxCents,
-		TotalCents:    total,
-		CouponCode:    couponCodePtr,
+		UserID:             userID,
+		IdempotencyKey:     optionalString(idempotencyKey),
+		RequestFingerprint: fingerprint,
+		Status:             model.OrderPendingPayment,
+		Currency:           currency,
+		SubtotalCents:      subtotal,
+		DiscountCents:      discount,
+		TaxCents:           taxCents,
+		TotalCents:         total,
+		CouponCode:         couponCodePtr,
 	}
 
 	for attempt := 0; attempt < 5; attempt++ {
@@ -196,8 +235,19 @@ func (s *OrderService) CreateOrder(
 		}
 
 		if !errors.Is(err, repository.ErrOrderNumberTaken) &&
+			!errors.Is(err, repository.ErrIdempotencyKeyTaken) &&
 			!errors.Is(err, repository.ErrCouponLimitReached) {
 			return nil, nil, fmt.Errorf("create order: %w", err)
+		}
+		if errors.Is(err, repository.ErrIdempotencyKeyTaken) {
+			existing, findErr := s.orders.FindOrderByUserIdempotencyKey(ctx, userID, idempotencyKey)
+			if findErr != nil {
+				return nil, nil, fmt.Errorf("resolve checkout retry: %w", findErr)
+			}
+			if existing.RequestFingerprint == nil || fingerprint == nil || *existing.RequestFingerprint != *fingerprint {
+				return nil, nil, ErrIdempotencyConflict
+			}
+			return s.loadOrderWithItems(ctx, existing.ID)
 		}
 
 		if errors.Is(err, repository.ErrCouponLimitReached) {
@@ -206,6 +256,24 @@ func (s *OrderService) CreateOrder(
 	}
 
 	return nil, nil, errors.New("could not allocate order number")
+}
+
+func checkoutFingerprint(courseIDs []uuid.UUID, couponCode string) string {
+	var request strings.Builder
+	for _, courseID := range courseIDs {
+		request.WriteString(courseID.String())
+		request.WriteByte('\n')
+	}
+	request.WriteString(strings.ToUpper(strings.TrimSpace(couponCode)))
+	digest := sha256.Sum256([]byte(request.String()))
+	return hex.EncodeToString(digest[:])
+}
+
+func optionalString(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 // GetOrder returns an order with its items. Unknown or foreign orders

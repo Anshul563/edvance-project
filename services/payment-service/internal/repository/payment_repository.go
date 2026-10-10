@@ -66,6 +66,7 @@ func (r *PaymentRepository) CreatePayment(
 			receipt
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		ON CONFLICT (commerce_order_id) DO NOTHING
 		RETURNING id, created_at, updated_at
 	`
 
@@ -83,6 +84,14 @@ func (r *PaymentRepository) CreatePayment(
 	).Scan(&payment.ID, &payment.CreatedAt, &payment.UpdatedAt)
 
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			existing, findErr := r.FindPaymentByCommerceOrder(ctx, payment.CommerceOrderID)
+			if findErr != nil {
+				return fmt.Errorf("read concurrent payment: %w", findErr)
+			}
+			*payment = *existing
+			return nil
+		}
 		return fmt.Errorf("create payment: %w", err)
 	}
 

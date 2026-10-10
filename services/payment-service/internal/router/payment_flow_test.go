@@ -170,6 +170,13 @@ func (f *fakeCommerce) MarkOrderFailed(
 	return nil
 }
 
+func (f *fakeCommerce) MarkOrderRefunded(
+	_ context.Context,
+	_ commerce.MarkOrderRefundedRequest,
+) error {
+	return nil
+}
+
 func issueFlowToken(t *testing.T, userID uuid.UUID) string {
 	t.Helper()
 
@@ -489,7 +496,7 @@ func TestPaymentFlowIntegration(t *testing.T) {
 		"/"+paymentID+"/refund",
 		userToken,
 		`{"amount":99900,"reason":"changed mind"}`,
-		nil,
+		map[string]string{"Idempotency-Key": "refund-flow-1"},
 	)
 	if refunded.Code != http.StatusCreated {
 		t.Fatalf("refund: %d %s", refunded.Code, refunded.Body.String())
@@ -497,7 +504,7 @@ func TestPaymentFlowIntegration(t *testing.T) {
 
 	// Refund webhook converges.
 	refundPayload := `{"id":"evt-flow-2","event":"refund.processed",` +
-		`"refund":{"entity":{"id":"rfnd_mock123","payment_id":"pay_mock123","amount":99900}}}`
+		`"refund":{"entity":{"id":"rfnd_mock123","payment_id":"pay_mock123","amount":99900,"currency":"INR","status":"processed"}}}`
 
 	refundHook := serve(
 		http.MethodPost,

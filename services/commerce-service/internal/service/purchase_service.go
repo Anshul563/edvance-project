@@ -60,6 +60,7 @@ type PurchaseStore interface {
 		orderID uuid.UUID,
 		paymentReference string,
 	) (*model.Order, []*model.Purchase, bool, error)
+	CompleteRefundTx(ctx context.Context, orderID uuid.UUID, refundedTotalCents int64) (*model.Order, error)
 }
 
 // PurchaseService finalizes paid orders and provisions learning access.
@@ -163,6 +164,27 @@ func (s *PurchaseService) CompleteOrder(
 	}
 
 	return result, nil
+}
+
+func (s *PurchaseService) CompleteRefund(
+	ctx context.Context,
+	orderID uuid.UUID,
+	refundedTotalCents int64,
+) (*model.Order, error) {
+	if orderID == uuid.Nil {
+		return nil, errors.New("order id is required")
+	}
+	order, err := s.purchases.CompleteRefundTx(ctx, orderID, refundedTotalCents)
+	if err != nil {
+		if errors.Is(err, repository.ErrOrderNotFound) {
+			return nil, ErrOrderNotFound
+		}
+		if errors.Is(err, repository.ErrInvalidOrderState) || errors.Is(err, repository.ErrInvalidRefundTotal) {
+			return nil, ErrInvalidOrderState
+		}
+		return nil, fmt.Errorf("complete refund: %w", err)
+	}
+	return order, nil
 }
 
 // GetPurchaseByCourse returns the caller's purchase for one course.

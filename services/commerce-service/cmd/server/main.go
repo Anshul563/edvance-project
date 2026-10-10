@@ -79,6 +79,7 @@ func main() {
 
 	provisioner := learning.NewHTTPProvisioner(
 		cfg.Learning.BaseURL,
+		cfg.Learning.InternalToken,
 		cfg.Learning.RequestTimeout,
 	)
 

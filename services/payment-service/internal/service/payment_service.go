@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/google/uuid"
 
@@ -73,11 +74,18 @@ type PaymentStore interface {
 // come from trusted commerce-service reads — never from the frontend.
 // The Razorpay key secret signs HMACs inside this process only.
 type PaymentService struct {
-	payments  PaymentStore
-	commerce  commerce.Client
-	razorpay  razorpay.Client
-	keyID     string
-	keySecret string
+	payments    PaymentStore
+	commerce    commerce.Client
+	razorpay    razorpay.Client
+	keyID       string
+	keySecret   string
+	orderLockMu sync.Mutex
+	orderLocks  map[uuid.UUID]*paymentOrderLock
+}
+
+type paymentOrderLock struct {
+	mu   sync.Mutex
+	refs int
 }
 
 func NewPaymentService(
@@ -96,11 +104,12 @@ func NewPaymentService(
 	}
 
 	return &PaymentService{
-		payments:  payments,
-		commerce:  commerce,
-		razorpay:  razorpay,
-		keyID:     keyID,
-		keySecret: keySecret,
+		payments:   payments,
+		commerce:   commerce,
+		razorpay:   razorpay,
+		keyID:      keyID,
+		keySecret:  keySecret,
+		orderLocks: make(map[uuid.UUID]*paymentOrderLock),
 	}, nil
 }
 
@@ -123,6 +132,8 @@ func (s *PaymentService) CreatePayment(
 	if userID == uuid.Nil || commerceOrderID == uuid.Nil {
 		return nil, errors.New("user and order ids are required")
 	}
+	unlock := s.lockPaymentOrder(commerceOrderID)
+	defer unlock()
 
 	order, err := s.ownedPayableOrder(ctx, userID, commerceOrderID)
 	if err != nil {
@@ -181,6 +192,28 @@ func (s *PaymentService) CreatePayment(
 	return &PaymentIntent{Payment: payment, KeyID: s.keyID}, nil
 }
 
+func (s *PaymentService) lockPaymentOrder(orderID uuid.UUID) func() {
+	s.orderLockMu.Lock()
+	entry := s.orderLocks[orderID]
+	if entry == nil {
+		entry = &paymentOrderLock{}
+		s.orderLocks[orderID] = entry
+	}
+	entry.refs++
+	s.orderLockMu.Unlock()
+
+	entry.mu.Lock()
+	return func() {
+		entry.mu.Unlock()
+		s.orderLockMu.Lock()
+		entry.refs--
+		if entry.refs == 0 {
+			delete(s.orderLocks, orderID)
+		}
+		s.orderLockMu.Unlock()
+	}
+}
+
 type VerifyInput struct {
 	CommerceOrderID   uuid.UUID
 	ClientOrderID     string
@@ -230,6 +263,15 @@ func (s *PaymentService) VerifyPayment(
 	// payable-order gate on purpose: a repeat verify arrives after the
 	// commerce order is already paid, which is the expected state.
 	if payment.Status == model.PaymentCaptured {
+		if deref(payment.ProviderPaymentID) != input.ProviderPaymentID {
+			return nil, ErrSignatureInvalid
+		}
+		if err := s.commerce.MarkOrderPaid(ctx, commerce.MarkOrderPaidRequest{
+			OrderID:          input.CommerceOrderID,
+			PaymentReference: input.ProviderPaymentID,
+		}); err != nil {
+			return payment, ErrCommerceNotifyFailed
+		}
 		return payment, nil
 	}
 

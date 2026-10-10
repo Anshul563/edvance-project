@@ -30,6 +30,11 @@ type internalPurchaseService interface {
 		orderID uuid.UUID,
 		paymentReference string,
 	) (*service.CompletionResult, error)
+	CompleteRefund(
+		ctx context.Context,
+		orderID uuid.UUID,
+		refundedTotalCents int64,
+	) (*model.Order, error)
 }
 
 type InternalHandler struct {
@@ -161,7 +166,37 @@ func (h *InternalHandler) MarkPaid(
 		response.ProvisionFailures = failures
 	}
 
+	if len(failures) > 0 {
+		writeJSON(w, http.StatusServiceUnavailable, response)
+		return
+	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+type markRefundedRequest struct {
+	RefundedTotalCents int64 `json:"refundedTotalCents"`
+}
+
+func (h *InternalHandler) MarkRefunded(w http.ResponseWriter, r *http.Request) {
+	orderID, err := uuid.Parse(chi.URLParam(r, "orderID"))
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "order not found"})
+		return
+	}
+	var request markRefundedRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
+	}
+	order, err := h.purchases.CompleteRefund(r.Context(), orderID, request.RefundedTotalCents)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"orderId": order.ID.String(),
+		"status":  string(order.Status),
+	})
 }
 
 type markFailedRequest struct {

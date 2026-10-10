@@ -9,5 +9,6 @@ FROM alpine:3.20
 RUN apk add --no-cache ca-certificates wget
 WORKDIR /app
 COPY --from=builder /out/server /app/server
+USER 65532:65532
 EXPOSE 8098
 CMD ["/app/server"]

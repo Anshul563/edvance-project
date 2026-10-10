@@ -15,16 +15,19 @@ import (
 )
 
 var (
-	ErrOrderNotFound      = errors.New("order not found")
-	ErrOrderNumberTaken   = errors.New("order number already taken")
-	ErrCouponLimitReached = errors.New("coupon usage limit reached")
-	ErrInvalidOrderState  = errors.New("invalid order state")
+	ErrOrderNotFound       = errors.New("order not found")
+	ErrOrderNumberTaken    = errors.New("order number already taken")
+	ErrCouponLimitReached  = errors.New("coupon usage limit reached")
+	ErrInvalidOrderState   = errors.New("invalid order state")
+	ErrIdempotencyKeyTaken = errors.New("order idempotency key already taken")
 )
 
 const orderColumns = `
 	id,
 	user_id,
 	order_number,
+	idempotency_key,
+	request_fingerprint,
 	status,
 	currency,
 	subtotal_cents,
@@ -83,6 +86,8 @@ func (r *OrderRepository) CreateOrderTx(
 		`INSERT INTO orders (
 			user_id,
 			order_number,
+			idempotency_key,
+			request_fingerprint,
 			status,
 			currency,
 			subtotal_cents,
@@ -91,10 +96,12 @@ func (r *OrderRepository) CreateOrderTx(
 			total_cents,
 			coupon_code
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING id, created_at, updated_at`,
 		order.UserID,
 		order.OrderNumber,
+		order.IdempotencyKey,
+		order.RequestFingerprint,
 		order.Status,
 		order.Currency,
 		order.SubtotalCents,
@@ -110,6 +117,9 @@ func (r *OrderRepository) CreateOrderTx(
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			if strings.Contains(pgErr.ConstraintName, "order_number") {
 				return ErrOrderNumberTaken
+			}
+			if strings.Contains(pgErr.ConstraintName, "idempotency") {
+				return ErrIdempotencyKeyTaken
 			}
 
 			return fmt.Errorf("create order: %w", err)
@@ -177,6 +187,26 @@ func (r *OrderRepository) CreateOrderTx(
 	}
 
 	return nil
+}
+
+func (r *OrderRepository) FindOrderByUserIdempotencyKey(
+	ctx context.Context,
+	userID uuid.UUID,
+	key string,
+) (*model.Order, error) {
+	order := &model.Order{}
+	err := r.db.QueryRow(ctx,
+		`SELECT `+orderColumns+` FROM orders WHERE user_id = $1 AND idempotency_key = $2`,
+		userID,
+		key,
+	).Scan(scanOrderArgs(order)...)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrOrderNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("find order by idempotency key: %w", err)
+	}
+	return order, nil
 }
 
 func (r *OrderRepository) FindOrderByID(
@@ -354,6 +384,9 @@ func CanTransition(from model.OrderStatus, to model.OrderStatus) bool {
 	case model.OrderPaid:
 		return to == model.OrderRefunded ||
 			to == model.OrderPartiallyRefunded
+
+	case model.OrderPartiallyRefunded:
+		return to == model.OrderRefunded
 	}
 
 	return false
@@ -416,6 +449,8 @@ func scanOrderArgs(order *model.Order) []any {
 		&order.ID,
 		&order.UserID,
 		&order.OrderNumber,
+		&order.IdempotencyKey,
+		&order.RequestFingerprint,
 		&order.Status,
 		&order.Currency,
 		&order.SubtotalCents,

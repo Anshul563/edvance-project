@@ -10,5 +10,5 @@ RUN apk add --no-cache ca-certificates wget
 WORKDIR /app
 COPY --from=builder /out/server /app/server
 USER 65532:65532
-EXPOSE 8081
+EXPOSE 8087
 CMD ["/app/server"]

@@ -8,8 +8,9 @@ import (
 
 func TestCanTransitionTable(t *testing.T) {
 	legal := map[model.OrderStatus][]model.OrderStatus{
-		model.OrderPendingPayment: {model.OrderPaid, model.OrderFailed, model.OrderCancelled},
-		model.OrderPaid:           {model.OrderRefunded, model.OrderPartiallyRefunded},
+		model.OrderPendingPayment:    {model.OrderPaid, model.OrderFailed, model.OrderCancelled},
+		model.OrderPaid:              {model.OrderRefunded, model.OrderPartiallyRefunded},
+		model.OrderPartiallyRefunded: {model.OrderRefunded},
 	}
 
 	all := []model.OrderStatus{

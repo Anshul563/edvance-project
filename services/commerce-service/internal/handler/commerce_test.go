@@ -102,7 +102,8 @@ type stubOrders struct {
 	page  *service.OrderPage
 	err   error
 
-	gotUserID uuid.UUID
+	gotUserID         uuid.UUID
+	gotIdempotencyKey string
 }
 
 func testOrder(userID uuid.UUID) *model.Order {
@@ -119,13 +120,15 @@ func testOrder(userID uuid.UUID) *model.Order {
 	}
 }
 
-func (s *stubOrders) CreateOrder(
+func (s *stubOrders) CreateOrderWithIdempotencyKey(
 	_ context.Context,
 	userID uuid.UUID,
 	_ []uuid.UUID,
 	_ string,
+	idempotencyKey string,
 ) (*model.Order, []*model.OrderItem, error) {
 	s.gotUserID = userID
+	s.gotIdempotencyKey = idempotencyKey
 
 	if s.err != nil {
 		return nil, nil, s.err
@@ -379,14 +382,16 @@ func TestOrderCreateMapsIdentity(t *testing.T) {
 	orders := &stubOrders{order: testOrder(userID), items: []*model.OrderItem{}}
 
 	rec := httptest.NewRecorder()
+	request := authedRequest(
+		http.MethodPost,
+		"/orders",
+		`{"courseIds":["`+uuid.NewString()+`"]}`,
+		userID,
+	)
+	request.Header.Set("Idempotency-Key", "checkout-test-key")
 	testRouter(cart, orders, coupons, purchases).ServeHTTP(
 		rec,
-		authedRequest(
-			http.MethodPost,
-			"/orders",
-			`{"courseIds":["`+uuid.NewString()+`"]}`,
-			userID,
-		),
+		request,
 	)
 
 	if rec.Code != http.StatusCreated {
@@ -395,6 +400,55 @@ func TestOrderCreateMapsIdentity(t *testing.T) {
 
 	if orders.gotUserID != userID {
 		t.Fatal("identity must come from the JWT")
+	}
+	if orders.gotIdempotencyKey != "checkout-test-key" {
+		t.Fatalf("expected idempotency key forwarded, got %q", orders.gotIdempotencyKey)
+	}
+}
+
+type stubInternalPurchases struct {
+	result *service.CompletionResult
+}
+
+func (s *stubInternalPurchases) CompleteOrder(
+	context.Context,
+	uuid.UUID,
+	string,
+) (*service.CompletionResult, error) {
+	return s.result, nil
+}
+
+func (s *stubInternalPurchases) CompleteRefund(
+	context.Context,
+	uuid.UUID,
+	int64,
+) (*model.Order, error) {
+	return nil, nil
+}
+
+func TestInternalPaidReportsProvisionFailureAsRetryable(t *testing.T) {
+	orderID := uuid.New()
+	purchase := &model.Purchase{CourseID: uuid.New()}
+	handler := NewInternalHandler(nil, &stubInternalPurchases{
+		result: &service.CompletionResult{
+			Order:           &model.Order{ID: orderID, Status: model.OrderPaid},
+			Purchases:       []*model.Purchase{purchase},
+			ProvisionErrors: []uuid.UUID{purchase.CourseID},
+		},
+	})
+	request := httptest.NewRequest(http.MethodPost, "/internal/orders/"+orderID.String()+"/paid", strings.NewReader(`{"paymentReference":"pay_1"}`))
+	routeContext := chi.NewRouteContext()
+	routeContext.URLParams.Add("orderID", orderID.String())
+	request = request.WithContext(context.WithValue(request.Context(), chi.RouteCtxKey, routeContext))
+	response := httptest.NewRecorder()
+
+	handler.MarkPaid(response, request)
+
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected retryable 503, got %d: %s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), purchase.CourseID.String()) {
+		t.Fatal("response should identify the enrollment needing retry")
 	}
 }
 

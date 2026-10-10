@@ -14,12 +14,13 @@ import (
 )
 
 type refundService interface {
-	CreateRefund(
+	CreateRefundWithIdempotencyKey(
 		ctx context.Context,
 		userID uuid.UUID,
 		paymentID uuid.UUID,
 		amountCents int64,
 		reason string,
+		idempotencyKey string,
 	) (*model.Refund, error)
 }
 
@@ -72,13 +73,19 @@ func (h *RefundHandler) Create(
 		writeBadRequest(w, "REFUND_AMOUNT_INVALID", "invalid request body")
 		return
 	}
+	idempotencyKey := r.Header.Get("Idempotency-Key")
+	if idempotencyKey == "" {
+		writeBadRequest(w, "IDEMPOTENCY_KEY_REQUIRED", "Idempotency-Key header is required")
+		return
+	}
 
-	refund, err := h.refunds.CreateRefund(
+	refund, err := h.refunds.CreateRefundWithIdempotencyKey(
 		r.Context(),
 		userID,
 		paymentID,
 		request.Amount,
 		request.Reason,
+		idempotencyKey,
 	)
 	if err != nil {
 		writeServiceError(w, err)

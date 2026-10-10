@@ -9,7 +9,7 @@ Port: `8087` · Database: `edvance_learning` · Module:
 ## Responsibilities
 
 - enrollments (`active/completed/cancelled/suspended`; sources
-  `free/manual` — purchase/subscription/gift later via commerce)
+  `free/manual/purchase`)
 - lesson progress (monotonic percent, free position seeks, thresholds)
 - lesson completion (idempotent) and course completion detection
 - computed course progress (`completed/total*100`, never stored)
@@ -33,6 +33,7 @@ JWT_ACCESS_SECRET=   # must match auth-service (validate-only here)
 JWT_ISSUER=edvance-auth
 JWT_AUDIENCE=edvance-api
 COURSE_SERVICE_URL=http://localhost:8086
+LEARNING_SERVICE_INTERNAL_TOKEN=   # shared with Commerce Service
 LESSON_COMPLETION_PERCENT=90
 ```
 
@@ -69,7 +70,8 @@ Free flow only (`priceCents == 0` + published + public, verified live
 against course-service). Duplicates return the existing enrollment.
 Paid/unpublished/missing courses fail coded (`COURSE_REQUIRES_PURCHASE`
 409, `COURSE_NOT_PUBLISHED` 422, `COURSE_NOT_FOUND` 404). `EnrollUser`
-is the internal/manual path for future commerce use (no public route).
+is the internal path for Commerce purchase provisioning (no public
+route); requests require `X-Internal-Key`.
 
 ## Progress rules
 

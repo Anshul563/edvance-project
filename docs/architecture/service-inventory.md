@@ -36,14 +36,18 @@ This inventory reflects the services that currently exist in the repository and 
 - Payments and commerce domains remain separate from learning ownership.
 - Admin operations are intentionally fail-closed and restricted to explicit admin user IDs.
 
+## Local purchase profile
+
+The Compose `purchase` profile builds and starts Course, Learning, and Commerce Services; `payment` adds Payment Service and requires Razorpay test credentials. Each service owns its database. Commerce reads current saleable prices from Course Service, Payment calls Commerce over authenticated internal routes, and Commerce provisions Learning through its authenticated internal enrollment route. No current purchase-path service consumes NATS, so Compose does not start a broker.
+
+Checkout and refund retries use caller-provided idempotency keys. Confirmed refunds update Commerce order/purchase state; Learning enrollment is retained by policy and is not automatically revoked. If Learning provisioning fails after payment, Commerce keeps the purchase and returns a retryable failure to Payment.
+
 ## Verified gaps and risks
 
-- No root `docker-compose.yml` or compose file exists under `infrastructure/docker`.
-- The root `Makefile` was empty and needed explicit tasks with honest failure paths.
-- The root `.env.example` was empty and needed documented environment placeholders.
-- The admin API was a scaffold before the final fix; it now has a working bootstrap and guarded routes.
-- Some Python services exist without root-level automation or env documentation.
-- Not all services are fully wired into a single local dev environment without external Postgres/Redis/NATS setup.
+- Docker Compose configuration parses, but container image builds, database migrations, service health checks, and runtime connectivity remain unverified when the Docker daemon is unavailable.
+- The default Compose services do not represent every service in the repository. The purchase stack is an optional profile; AI, analytics processing, and the remaining Go services are not included in that purchase workflow.
+- Course Service currently has no global catalog-list endpoint; discovery is limited to creator-scoped listing and course detail.
+- Refund timeout outcomes are retained as pending and require same-key replay/provider webhook reconciliation; the service will not blindly repeat an uncertain provider operation.
 
 ## Health endpoints
 

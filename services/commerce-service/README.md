@@ -19,7 +19,7 @@ Port: `8089` · Database: `edvance_commerce` · Module:
 
 ## Non-responsibilities
 
-Payment providers/webhooks (future payment-service), enrollments and
+Payment providers/webhooks (payment-service), enrollments and
 learning state (learning-service), course data (course-service), users,
 creators, videos, media, reviews, comments, recommendations, search.
 
@@ -45,6 +45,8 @@ JWT_ISSUER=edvance-auth
 JWT_AUDIENCE=edvance-api
 COURSE_SERVICE_URL=http://localhost:8086
 LEARNING_SERVICE_URL=http://localhost:8087
+LEARNING_SERVICE_INTERNAL_TOKEN=   # must match learning-service
+COMMERCE_SERVICE_INTERNAL_TOKEN=   # must match payment-service
 ```
 
 ## Endpoints (all JWT-authed, strictly per-user)
@@ -54,7 +56,7 @@ GET    /cart
 POST   /cart/items                 {courseId}
 DELETE /cart/items/:courseID
 DELETE /cart                       (keeps the cart row)
-POST   /orders                     {courseIds[], couponCode?}
+POST   /orders                     {courseIds[], couponCode?}; optional Idempotency-Key
 GET    /orders/:orderID            (owner only; foreign reads 404)
 GET    /orders?page=&limit=&status=
 POST   /coupons/validate           {code, courseIds[]} (never consumes)
@@ -69,6 +71,8 @@ Through the gateway prefix with `/api/v1/commerce` (stripped):
 Errors use `{"error": {"code": "...", "message": "..."}}`. There is
 deliberately **no** public payment-success endpoint: completion arrives
 from the trusted payment-service integration calling `CompleteOrder`.
+Internal paid and refund callbacks require the shared internal key and are
+not exposed through the API Gateway.
 
 ## Cart rules
 
@@ -98,11 +102,19 @@ safely into `COUPON_USAGE_LIMIT_REACHED` instead of overshooting.
 ```text
 pending_payment → paid | failed | cancelled
 paid → refunded | partially_refunded
+partially_refunded → refunded
 ```
 
 Enforced by `CanTransition` + compare-and-swap writes. `CompleteOrder`
 is idempotent: paid orders replay (purchases fetched, provisioning
 retried); anything non-pending refuses.
+
+Checkout idempotency is scoped to the user. Commerce fingerprints the
+course IDs and normalized coupon code: identical retries return the
+original order, while reuse of a key with different request contents is
+rejected. A full refund marks both order and purchase records refunded;
+partial refunds retain active purchase records. Learning enrollments are
+retained and are not automatically revoked by refunds.
 
 ## Purchase & provisioning
 
@@ -117,6 +129,7 @@ paid order and purchases are never unwound.
 
 ```bash
 psql "$DATABASE_URL" -f migrations/001_create_commerce_tables.sql
+psql "$DATABASE_URL" -f migrations/002_add_order_idempotency.sql
 go run ./cmd/server
 ```
 

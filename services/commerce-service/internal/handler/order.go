@@ -16,11 +16,12 @@ import (
 )
 
 type orderService interface {
-	CreateOrder(
+	CreateOrderWithIdempotencyKey(
 		ctx context.Context,
 		userID uuid.UUID,
 		courseIDs []uuid.UUID,
 		couponCode string,
+		idempotencyKey string,
 	) (*model.Order, []*model.OrderItem, error)
 	GetOrder(
 		ctx context.Context,
@@ -106,11 +107,12 @@ func (h *OrderHandler) Create(
 		courseIDs = append(courseIDs, id)
 	}
 
-	order, items, err := h.orders.CreateOrder(
+	order, items, err := h.orders.CreateOrderWithIdempotencyKey(
 		r.Context(),
 		userID,
 		courseIDs,
 		request.CouponCode,
+		r.Header.Get("Idempotency-Key"),
 	)
 	if err != nil {
 		writeServiceError(w, err)

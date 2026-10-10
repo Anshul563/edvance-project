@@ -22,21 +22,23 @@ const (
 // frozen at creation from course-service snapshots; later price changes
 // can never rewrite history.
 type Order struct {
-	ID               uuid.UUID
-	UserID           uuid.UUID
-	OrderNumber      string
-	Status           OrderStatus
-	Currency         string
-	SubtotalCents    int64
-	DiscountCents    int64
-	TaxCents         int64
-	TotalCents       int64
-	CouponCode       *string
-	PaymentReference *string
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
-	CompletedAt      *time.Time
-	CancelledAt      *time.Time
+	ID                 uuid.UUID
+	UserID             uuid.UUID
+	OrderNumber        string
+	IdempotencyKey     *string
+	RequestFingerprint *string
+	Status             OrderStatus
+	Currency           string
+	SubtotalCents      int64
+	DiscountCents      int64
+	TaxCents           int64
+	TotalCents         int64
+	CouponCode         *string
+	PaymentReference   *string
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	CompletedAt        *time.Time
+	CancelledAt        *time.Time
 }
 
 // Terminal reports whether the order will never move again through the

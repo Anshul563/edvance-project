@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/google/uuid"
@@ -64,6 +65,49 @@ func TestCreatePaymentIdempotent(t *testing.T) {
 
 	if fx.razorpay.ordersMade != 1 {
 		t.Fatalf("provider must be called once, got %d", fx.razorpay.ordersMade)
+	}
+}
+
+func TestConcurrentCreatePaymentMakesOneProviderOrder(t *testing.T) {
+	fx := newFixture()
+	ctx := context.Background()
+	userID := uuid.New()
+	orderID := uuid.New()
+	fx.commerce.orders[orderID] = payableOrder(orderID, userID)
+
+	const callers = 8
+	var wg sync.WaitGroup
+	results := make(chan *model.Payment, callers)
+	errs := make(chan error, callers)
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			intent, err := fx.payments.CreatePayment(ctx, userID, orderID)
+			if err != nil {
+				errs <- err
+				return
+			}
+			results <- intent.Payment
+		}()
+	}
+	wg.Wait()
+	close(results)
+	close(errs)
+	for err := range errs {
+		t.Fatalf("concurrent create: %v", err)
+	}
+	var paymentID uuid.UUID
+	for payment := range results {
+		if paymentID == uuid.Nil {
+			paymentID = payment.ID
+		}
+		if payment.ID != paymentID {
+			t.Fatal("all concurrent requests must resolve to one payment record")
+		}
+	}
+	if fx.razorpay.ordersMade != 1 {
+		t.Fatalf("expected one provider order, got %d", fx.razorpay.ordersMade)
 	}
 }
 
@@ -168,6 +212,49 @@ func TestVerifyPaymentValid(t *testing.T) {
 
 	if again.ID != verified.ID {
 		t.Fatal("expected the same payment")
+	}
+}
+
+func TestVerifyPaymentRetriesCommerceNotification(t *testing.T) {
+	fx := newFixture()
+	ctx := context.Background()
+	userID := uuid.New()
+	orderID := uuid.New()
+	fx.commerce.orders[orderID] = payableOrder(orderID, userID)
+	fx.commerce.paidErr = errors.New("commerce unavailable")
+
+	input := VerifyInput{
+		CommerceOrderID:   orderID,
+		ClientOrderID:     "order_test123",
+		ProviderPaymentID: "pay_test123",
+		Signature:         testSignature("order_test123", "pay_test123"),
+	}
+	fx.razorpay.payment = razorpay.PaymentResponse{
+		ID:       input.ProviderPaymentID,
+		OrderID:  input.ClientOrderID,
+		Amount:   99900,
+		Currency: "INR",
+		Status:   "captured",
+		Captured: true,
+	}
+	if _, err := fx.payments.CreatePayment(ctx, userID, orderID); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if payment, err := fx.payments.VerifyPayment(ctx, userID, input); !errors.Is(err, ErrCommerceNotifyFailed) {
+		t.Fatalf("expected retryable commerce notification error, got payment=%v err=%v", payment, err)
+	}
+
+	stored, err := fx.paymentStore.FindPaymentByCommerceOrder(ctx, orderID)
+	if err != nil || stored.Status != model.PaymentCaptured {
+		t.Fatalf("capture must persist despite notify failure: payment=%v err=%v", stored, err)
+	}
+
+	fx.commerce.paidErr = nil
+	if _, err := fx.payments.VerifyPayment(ctx, userID, input); err != nil {
+		t.Fatalf("repeat verify must retry commerce notification: %v", err)
+	}
+	if len(fx.commerce.paid) != 1 || fx.commerce.paid[0] != orderID {
+		t.Fatalf("expected one successful commerce notification, got %v", fx.commerce.paid)
 	}
 }
 

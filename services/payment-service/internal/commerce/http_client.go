@@ -155,6 +155,19 @@ func (c *HTTPClient) MarkOrderFailed(
 	)
 }
 
+func (c *HTTPClient) MarkOrderRefunded(
+	ctx context.Context,
+	request MarkOrderRefundedRequest,
+) error {
+	payload, err := json.Marshal(map[string]int64{
+		"refundedTotalCents": request.RefundedTotalCents,
+	})
+	if err != nil {
+		return fmt.Errorf("%w: encode: %v", ErrCommerceUnavailable, err)
+	}
+	return c.post(ctx, "/internal/orders/"+request.OrderID.String()+"/refunded", payload)
+}
+
 func (c *HTTPClient) post(
 	ctx context.Context,
 	path string,

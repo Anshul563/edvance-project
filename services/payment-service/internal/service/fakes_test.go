@@ -239,13 +239,15 @@ func (f *fakePaymentStore) MarkPaymentRefunded(
 
 // fakeCommerceClient serves scripted orders and records outcomes.
 type fakeCommerceClient struct {
-	mu      sync.Mutex
-	orders  map[uuid.UUID]*commerce.Order
-	err     error
-	paid    []uuid.UUID
-	failed  []uuid.UUID
-	paidErr error
-	failErr error
+	mu        sync.Mutex
+	orders    map[uuid.UUID]*commerce.Order
+	err       error
+	paid      []uuid.UUID
+	failed    []uuid.UUID
+	refunded  []commerce.MarkOrderRefundedRequest
+	paidErr   error
+	failErr   error
+	refundErr error
 }
 
 func (f *fakeCommerceClient) GetOrder(
@@ -301,16 +303,31 @@ func (f *fakeCommerceClient) MarkOrderFailed(
 	return nil
 }
 
+func (f *fakeCommerceClient) MarkOrderRefunded(
+	_ context.Context,
+	request commerce.MarkOrderRefundedRequest,
+) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.refundErr != nil {
+		return f.refundErr
+	}
+	f.refunded = append(f.refunded, request)
+	return nil
+}
+
 // fakeRazorpay is a programmable razorpay.Client.
 type fakeRazorpay struct {
-	mu         sync.Mutex
-	orderID    string
-	orderErr   error
-	payment    razorpay.PaymentResponse
-	paymentErr error
-	refund     razorpay.RefundResponse
-	refundErr  error
-	ordersMade int
+	mu          sync.Mutex
+	orderID     string
+	orderErr    error
+	payment     razorpay.PaymentResponse
+	paymentErr  error
+	refund      razorpay.RefundResponse
+	refundErr   error
+	ordersMade  int
+	refundsMade int
+	refundCalls int
 }
 
 func (f *fakeRazorpay) CreateOrder(
@@ -365,10 +382,12 @@ func (f *fakeRazorpay) CreateRefund(
 ) (razorpay.RefundResponse, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.refundCalls++
 
 	if f.refundErr != nil {
 		return razorpay.RefundResponse{}, f.refundErr
 	}
+	f.refundsMade++
 
 	return f.refund, nil
 }
@@ -403,7 +422,7 @@ func newFixture() *fixture {
 		panic(err)
 	}
 
-	refunds, err := NewRefundService(refundStore, paymentStore, razorpay)
+	refunds, err := NewRefundService(refundStore, paymentStore, razorpay, commerce)
 	if err != nil {
 		panic(err)
 	}

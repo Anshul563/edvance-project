@@ -131,11 +131,12 @@ type stubRefunds struct {
 	gotUserID uuid.UUID
 }
 
-func (s *stubRefunds) CreateRefund(
+func (s *stubRefunds) CreateRefundWithIdempotencyKey(
 	_ context.Context,
 	userID uuid.UUID,
 	_ uuid.UUID,
 	_ int64,
+	_ string,
 	_ string,
 ) (*model.Refund, error) {
 	s.gotUserID = userID
@@ -390,14 +391,16 @@ func TestRefundValidation(t *testing.T) {
 	)
 
 	rec := httptest.NewRecorder()
+	request := authedRequest(
+		http.MethodPost,
+		"/"+uuid.NewString()+"/refund",
+		`{"amount":999999,"reason":"x"}`,
+		userID,
+	)
+	request.Header.Set("Idempotency-Key", "refund-handler-test")
 	r.ServeHTTP(
 		rec,
-		authedRequest(
-			http.MethodPost,
-			"/"+uuid.NewString()+"/refund",
-			`{"amount":999999,"reason":"x"}`,
-			userID,
-		),
+		request,
 	)
 
 	if rec.Code != http.StatusBadRequest {

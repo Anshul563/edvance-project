@@ -20,6 +20,7 @@ type fakeOrderStore struct {
 	byNum  map[string]*model.Order
 	items  map[uuid.UUID][]*model.OrderItem
 	byUser map[uuid.UUID][]*model.Order
+	byKey  map[string]*model.Order
 }
 
 func newFakeOrderStore() *fakeOrderStore {
@@ -28,6 +29,7 @@ func newFakeOrderStore() *fakeOrderStore {
 		byNum:  make(map[string]*model.Order),
 		items:  make(map[uuid.UUID][]*model.OrderItem),
 		byUser: make(map[uuid.UUID][]*model.Order),
+		byKey:  make(map[string]*model.Order),
 	}
 }
 
@@ -51,6 +53,12 @@ func (f *fakeOrderStore) CreateOrderTx(
 	if couponID != nil && *couponID == (uuid.UUID{}) {
 		return repository.ErrCouponLimitReached
 	}
+	if order.IdempotencyKey != nil {
+		key := order.UserID.String() + ":" + *order.IdempotencyKey
+		if _, exists := f.byKey[key]; exists {
+			return repository.ErrIdempotencyKeyTaken
+		}
+	}
 
 	order.ID = uuid.New()
 
@@ -58,6 +66,9 @@ func (f *fakeOrderStore) CreateOrderTx(
 	f.byID[order.ID] = &stored
 	f.byNum[order.OrderNumber] = &stored
 	f.byUser[order.UserID] = append(f.byUser[order.UserID], &stored)
+	if order.IdempotencyKey != nil {
+		f.byKey[order.UserID.String()+":"+*order.IdempotencyKey] = &stored
+	}
 
 	for _, input := range items {
 		f.items[order.ID] = append(f.items[order.ID], &model.OrderItem{
@@ -73,6 +84,21 @@ func (f *fakeOrderStore) CreateOrderTx(
 	}
 
 	return nil
+}
+
+func (f *fakeOrderStore) FindOrderByUserIdempotencyKey(
+	_ context.Context,
+	userID uuid.UUID,
+	key string,
+) (*model.Order, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	order, ok := f.byKey[userID.String()+":"+key]
+	if !ok {
+		return nil, repository.ErrOrderNotFound
+	}
+	copy := *order
+	return &copy, nil
 }
 
 func (f *fakeOrderStore) FindOrderByID(
@@ -295,6 +321,37 @@ func (f *fakeFullPurchaseStore) CompleteOrderTx(
 	return order, created, false, nil
 }
 
+func (f *fakeFullPurchaseStore) CompleteRefundTx(
+	_ context.Context,
+	orderID uuid.UUID,
+	refundedTotalCents int64,
+) (*model.Order, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	order, ok := f.orders[orderID]
+	if !ok {
+		return nil, repository.ErrOrderNotFound
+	}
+	if refundedTotalCents <= 0 || refundedTotalCents > order.TotalCents {
+		return nil, repository.ErrInvalidRefundTotal
+	}
+	if order.Status == model.OrderRefunded && refundedTotalCents == order.TotalCents {
+		return order, nil
+	}
+	if order.Status != model.OrderPaid && order.Status != model.OrderPartiallyRefunded {
+		return nil, repository.ErrInvalidOrderState
+	}
+	if refundedTotalCents == order.TotalCents {
+		order.Status = model.OrderRefunded
+		for _, purchase := range f.purchases[orderID] {
+			purchase.Status = model.PurchaseRefunded
+		}
+	} else {
+		order.Status = model.OrderPartiallyRefunded
+	}
+	return order, nil
+}
+
 func (f *fakeFullPurchaseStore) orderCourses(orderID uuid.UUID) []uuid.UUID {
 	return f.orderItems[orderID]
 }
@@ -447,6 +504,32 @@ func TestCreateOrderSingle(t *testing.T) {
 
 	if items[0].CourseTitle == "" {
 		t.Fatal("title snapshot required")
+	}
+}
+
+func TestCreateOrderIdempotencyKey(t *testing.T) {
+	fx := newOrderFixture()
+	ctx := context.Background()
+	userID := uuid.New()
+	courseID := uuid.New()
+	fx.courses.courses[courseID] = saleableCourse(courseID, 99900)
+
+	first, _, err := fx.orders.CreateOrderWithIdempotencyKey(ctx, userID, []uuid.UUID{courseID}, "", "checkout-1")
+	if err != nil {
+		t.Fatalf("first checkout: %v", err)
+	}
+	second, _, err := fx.orders.CreateOrderWithIdempotencyKey(ctx, userID, []uuid.UUID{courseID}, "", "checkout-1")
+	if err != nil {
+		t.Fatalf("retry checkout: %v", err)
+	}
+	if second.ID != first.ID {
+		t.Fatal("identical checkout retry must return the original order")
+	}
+
+	otherCourseID := uuid.New()
+	fx.courses.courses[otherCourseID] = saleableCourse(otherCourseID, 19900)
+	if _, _, err := fx.orders.CreateOrderWithIdempotencyKey(ctx, userID, []uuid.UUID{otherCourseID}, "", "checkout-1"); !errors.Is(err, ErrIdempotencyConflict) {
+		t.Fatalf("expected payload conflict for reused key, got %v", err)
 	}
 }
 
@@ -655,6 +738,41 @@ func TestCompleteOrderProvisionFailure(t *testing.T) {
 
 	if len(retry.ProvisionErrors) != 0 {
 		t.Fatal("retry should provision")
+	}
+}
+
+func TestCompleteRefundLifecycleRetainsPartialAndMarksFullPurchase(t *testing.T) {
+	fx := newOrderFixture()
+	ctx := context.Background()
+	userID := uuid.New()
+	courseID := uuid.New()
+	order := &model.Order{
+		ID: uuid.New(), UserID: userID, Status: model.OrderPendingPayment,
+		Currency: "INR", TotalCents: 99900,
+	}
+	fx.purchase.seedOrder(order, []uuid.UUID{courseID})
+	if _, err := fx.purchases.CompleteOrder(ctx, order.ID, "pay_1"); err != nil {
+		t.Fatalf("complete purchase: %v", err)
+	}
+
+	partial, err := fx.purchases.CompleteRefund(ctx, order.ID, 49900)
+	if err != nil || partial.Status != model.OrderPartiallyRefunded {
+		t.Fatalf("partial refund: order=%+v err=%v", partial, err)
+	}
+	purchases := fx.purchase.purchases[order.ID]
+	if len(purchases) != 1 || purchases[0].Status != model.PurchaseActive {
+		t.Fatal("partial refund must not revoke commercial course ownership")
+	}
+
+	full, err := fx.purchases.CompleteRefund(ctx, order.ID, 99900)
+	if err != nil || full.Status != model.OrderRefunded {
+		t.Fatalf("full refund: order=%+v err=%v", full, err)
+	}
+	if purchases[0].Status != model.PurchaseRefunded {
+		t.Fatal("full refund must mark the purchase record refunded")
+	}
+	if _, err := fx.purchases.CompleteRefund(ctx, order.ID, 99900); err != nil {
+		t.Fatalf("duplicate full refund callback should be idempotent: %v", err)
 	}
 }
 

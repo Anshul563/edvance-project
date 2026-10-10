@@ -41,6 +41,12 @@ func mapServiceError(err error) (int, apiError) {
 		errors.Is(err, service.ErrRefundTooLarge):
 		return http.StatusBadRequest, apiError{Code: "REFUND_AMOUNT_INVALID", Message: "refund not allowed"}
 
+	case errors.Is(err, service.ErrRefundPending):
+		return http.StatusConflict, apiError{Code: "REFUND_PENDING", Message: "an earlier refund outcome is unresolved"}
+
+	case errors.Is(err, service.ErrRefundIdempotencyConflict):
+		return http.StatusConflict, apiError{Code: "IDEMPOTENCY_KEY_CONFLICT", Message: "idempotency key was used for a different refund request"}
+
 	case errors.Is(err, service.ErrRazorpayError):
 		return http.StatusBadGateway, apiError{Code: "RAZORPAY_API_ERROR", Message: "payment provider error"}
 

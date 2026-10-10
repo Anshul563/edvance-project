@@ -113,6 +113,8 @@ type webhookRefundEntity struct {
 	ID        string `json:"id"`
 	PaymentID string `json:"payment_id"`
 	Amount    int64  `json:"amount"`
+	Currency  string `json:"currency"`
+	Status    string `json:"status"`
 }
 
 // HandleWebhook verifies, stores, dedupes, and processes one delivery.
@@ -229,6 +231,9 @@ func (s *WebhookService) processEvent(
 	case "refund.processed":
 		return s.onRefundProcessed(ctx, event)
 
+	case "refund.failed":
+		return s.onRefundFailed(ctx, event)
+
 	default:
 		return fmt.Errorf("unsupported webhook event: %s", event.EventType)
 	}
@@ -247,6 +252,9 @@ func (s *WebhookService) onPaymentCaptured(
 	if err != nil {
 		return err
 	}
+	if err := validatePaymentWebhook(payment, entity, "captured"); err != nil {
+		return err
+	}
 
 	if payment.Status == model.PaymentCaptured {
 		return s.notifyPaid(ctx, payment, entity.ID)
@@ -255,14 +263,6 @@ func (s *WebhookService) onPaymentCaptured(
 	if payment.Status != model.PaymentCreated &&
 		payment.Status != model.PaymentAuthorized {
 		return nil
-	}
-
-	if entity.Amount != payment.AmountCents {
-		return &FatalWebhookError{Err: ErrAmountMismatch}
-	}
-
-	if entity.Currency != "" && entity.Currency != payment.Currency {
-		return &FatalWebhookError{Err: ErrCurrencyMismatch}
 	}
 
 	captured, _, err := s.paymentCapture(ctx, payment.ID, entity.ID, "")
@@ -284,6 +284,9 @@ func (s *WebhookService) onPaymentFailed(
 
 	payment, err := s.findLocalPayment(ctx, entity.ID, entity.OrderID)
 	if err != nil {
+		return err
+	}
+	if err := validatePaymentWebhook(payment, entity, "failed"); err != nil {
 		return err
 	}
 
@@ -329,6 +332,15 @@ func (s *WebhookService) onOrderPaid(
 
 		return fmt.Errorf("find payment: %w", err)
 	}
+	if entity.Status != "paid" {
+		return &FatalWebhookError{Err: ErrInvalidPaymentState}
+	}
+	if entity.Amount != payment.AmountCents {
+		return &FatalWebhookError{Err: ErrAmountMismatch}
+	}
+	if entity.Currency != payment.Currency {
+		return &FatalWebhookError{Err: ErrCurrencyMismatch}
+	}
 
 	if payment.Status == model.PaymentCaptured {
 		return s.notifyPaid(ctx, payment, deref(payment.ProviderPaymentID))
@@ -348,12 +360,54 @@ func (s *WebhookService) onRefundProcessed(
 	if err != nil {
 		return err
 	}
+	if _, err := s.validateRefundWebhook(ctx, entity, "processed"); err != nil {
+		return err
+	}
 
 	if _, err := s.refunds.ProcessRefundWebhook(ctx, entity.ID); err != nil {
 		return fmt.Errorf("process refund webhook: %w", err)
 	}
 
 	return nil
+}
+
+func (s *WebhookService) onRefundFailed(ctx context.Context, event *model.WebhookEvent) error {
+	entity, err := webhookRefundEntityOf(event.Payload)
+	if err != nil {
+		return err
+	}
+	if _, err := s.validateRefundWebhook(ctx, entity, "failed"); err != nil {
+		return err
+	}
+	if _, err := s.refunds.ProcessRefundFailureWebhook(ctx, entity.ID); err != nil {
+		return fmt.Errorf("process failed refund webhook: %w", err)
+	}
+	return nil
+}
+
+func (s *WebhookService) validateRefundWebhook(
+	ctx context.Context,
+	entity webhookRefundEntity,
+	expectedStatus string,
+) (*model.Refund, error) {
+	refund, err := s.refunds.refunds.FindRefundByProviderID(ctx, entity.ID)
+	if err != nil {
+		return nil, fmt.Errorf("find refund event target: %w", err)
+	}
+	payment, err := s.payments.FindPaymentByID(ctx, refund.PaymentID)
+	if err != nil {
+		return nil, fmt.Errorf("find refund payment: %w", err)
+	}
+	if entity.Status != expectedStatus || entity.PaymentID == "" || entity.PaymentID != deref(payment.ProviderPaymentID) {
+		return nil, &FatalWebhookError{Err: ErrSignatureInvalid}
+	}
+	if entity.Amount != refund.AmountCents {
+		return nil, &FatalWebhookError{Err: ErrAmountMismatch}
+	}
+	if entity.Currency != payment.Currency || refund.Currency != payment.Currency {
+		return nil, &FatalWebhookError{Err: ErrCurrencyMismatch}
+	}
+	return refund, nil
 }
 
 // findLocalPayment locates the payment by provider payment id first,
@@ -387,6 +441,29 @@ func (s *WebhookService) findLocalPayment(
 	}
 
 	return nil, fmt.Errorf("unknown provider payment: %s", providerPaymentID)
+}
+
+func validatePaymentWebhook(
+	payment *model.Payment,
+	entity webhookPaymentEntity,
+	expectedStatus string,
+) error {
+	if entity.ID == "" || entity.OrderID == "" || entity.OrderID != deref(payment.ProviderOrderID) {
+		return &FatalWebhookError{Err: ErrSignatureInvalid}
+	}
+	if payment.ProviderPaymentID != nil && *payment.ProviderPaymentID != entity.ID {
+		return &FatalWebhookError{Err: ErrSignatureInvalid}
+	}
+	if entity.Amount != payment.AmountCents {
+		return &FatalWebhookError{Err: ErrAmountMismatch}
+	}
+	if entity.Currency != payment.Currency {
+		return &FatalWebhookError{Err: ErrCurrencyMismatch}
+	}
+	if entity.Status != expectedStatus {
+		return &FatalWebhookError{Err: ErrInvalidPaymentState}
+	}
+	return nil
 }
 
 // paymentCapture is the shared finalize step used by webhook paths.

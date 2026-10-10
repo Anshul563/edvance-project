@@ -30,6 +30,7 @@ type JWTConfig struct {
 
 type ServiceConfig struct {
 	BaseURL        string
+	InternalToken  string
 	RequestTimeout time.Duration
 }
 
@@ -79,6 +80,7 @@ func Load() (Config, error) {
 				"LEARNING_SERVICE_URL",
 				"http://localhost:8087",
 			),
+			InternalToken:  os.Getenv("LEARNING_SERVICE_INTERNAL_TOKEN"),
 			RequestTimeout: 10 * time.Second,
 		},
 
@@ -100,6 +102,12 @@ func Load() (Config, error) {
 	if cfg.Internal.APIKey == "" {
 		return Config{}, errors.New(
 			"COMMERCE_SERVICE_INTERNAL_TOKEN is required",
+		)
+	}
+
+	if cfg.Learning.InternalToken == "" {
+		return Config{}, errors.New(
+			"LEARNING_SERVICE_INTERNAL_TOKEN is required",
 		)
 	}
 
