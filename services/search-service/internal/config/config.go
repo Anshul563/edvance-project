@@ -125,12 +125,12 @@ func Load() (Config, error) {
 		},
 
 		Search: SearchConfig{
-			MaxQueryLength:     maxQueryLength,
-			MaxSuggestLength:   maxSuggestLength,
-			MaxSuggestResults:  10,
-			MaxReindexBatch:    maxReindexBatch,
-			TrendingWindow:     24 * time.Hour,
-			TrendingLimit:      10,
+			MaxQueryLength:    maxQueryLength,
+			MaxSuggestLength:  maxSuggestLength,
+			MaxSuggestResults: 10,
+			MaxReindexBatch:   maxReindexBatch,
+			TrendingWindow:    24 * time.Hour,
+			TrendingLimit:     10,
 		},
 	}
 

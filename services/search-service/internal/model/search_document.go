@@ -10,19 +10,19 @@ import (
 
 // Source types that may be indexed for search.
 const (
-	SourceCourse = "course"
-	SourceVideo  = "video"
-	SourceShort  = "short"
-	SourcePost   = "post"
+	SourceCourse  = "course"
+	SourceVideo   = "video"
+	SourceShort   = "short"
+	SourcePost    = "post"
 	SourceCreator = "creator"
 )
 
 // Visibility values stored in the index. Only public documents are
 // eligible for public search results.
 const (
-	VisibilityPublic  = "public"
-	VisibilityPrivate = "private"
-	VisibilityDraft   = "draft"
+	VisibilityPublic   = "public"
+	VisibilityPrivate  = "private"
+	VisibilityDraft    = "draft"
 	VisibilityUnlisted = "unlisted"
 )
 

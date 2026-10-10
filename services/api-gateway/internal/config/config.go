@@ -13,19 +13,20 @@ type Config struct {
 }
 
 type ServicesConfig struct {
-	AuthURL     string
-	UserURL     string
-	CreatorURL  string
-	ContentURL  string
-	VideoURL    string
-	MediaURL    string
-	CourseURL   string
-	LearningURL string
-	SocialURL   string
-	CommerceURL string
-	PaymentURL    string
-	NotificationURL string
-	SearchURL     string
+	AuthURL           string
+	UserURL           string
+	CreatorURL        string
+	ContentURL        string
+	VideoURL          string
+	MediaURL          string
+	CourseURL         string
+	LearningURL       string
+	SocialURL         string
+	CommerceURL       string
+	PaymentURL        string
+	NotificationURL   string
+	SearchURL         string
+	RecommendationURL string
 }
 
 func Load() Config {
@@ -42,19 +43,20 @@ func Load() Config {
 		Port:   port,
 
 		Services: ServicesConfig{
-			AuthURL:     getEnv("AUTH_SERVICE_URL", "http://localhost:8081"),
-			UserURL:     getEnv("USER_SERVICE_URL", "http://localhost:8082"),
-			CreatorURL:  getEnv("CREATOR_SERVICE_URL", "http://localhost:8083"),
-			ContentURL:  getEnv("CONTENT_SERVICE_URL", "http://localhost:8084"),
-			VideoURL:    getEnv("VIDEO_SERVICE_URL", "http://localhost:8085"),
-			MediaURL:    getEnv("MEDIA_SERVICE_URL", "http://localhost:8091"),
-			CourseURL:   getEnv("COURSE_SERVICE_URL", "http://localhost:8086"),
-			LearningURL: getEnv("LEARNING_SERVICE_URL", "http://localhost:8087"),
-			SocialURL:   getEnv("SOCIAL_SERVICE_URL", "http://localhost:8088"),
-			CommerceURL: getEnv("COMMERCE_SERVICE_URL", "http://localhost:8089"),
-			PaymentURL:  getEnv("PAYMENT_SERVICE_URL", "http://localhost:8090"),
-			NotificationURL: getEnv("NOTIFICATION_SERVICE_URL", "http://localhost:8092"),
-			SearchURL:       getEnv("SEARCH_SERVICE_URL", "http://localhost:8091"),
+			AuthURL:           getEnv("AUTH_SERVICE_URL", "http://localhost:8081"),
+			UserURL:           getEnv("USER_SERVICE_URL", "http://localhost:8082"),
+			CreatorURL:        getEnv("CREATOR_SERVICE_URL", "http://localhost:8083"),
+			ContentURL:        getEnv("CONTENT_SERVICE_URL", "http://localhost:8084"),
+			VideoURL:          getEnv("VIDEO_SERVICE_URL", "http://localhost:8085"),
+			MediaURL:          getEnv("MEDIA_SERVICE_URL", "http://localhost:8091"),
+			CourseURL:         getEnv("COURSE_SERVICE_URL", "http://localhost:8086"),
+			LearningURL:       getEnv("LEARNING_SERVICE_URL", "http://localhost:8087"),
+			SocialURL:         getEnv("SOCIAL_SERVICE_URL", "http://localhost:8088"),
+			CommerceURL:       getEnv("COMMERCE_SERVICE_URL", "http://localhost:8089"),
+			PaymentURL:        getEnv("PAYMENT_SERVICE_URL", "http://localhost:8090"),
+			NotificationURL:   getEnv("NOTIFICATION_SERVICE_URL", "http://localhost:8092"),
+			SearchURL:         getEnv("SEARCH_SERVICE_URL", "http://localhost:8091"),
+			RecommendationURL: getEnv("RECOMMENDATION_SERVICE_URL", "http://localhost:8093"),
 		},
 	}
 }

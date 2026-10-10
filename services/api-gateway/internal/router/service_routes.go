@@ -142,6 +142,14 @@ func registerServiceRoutes(
 		return err
 	}
 
+	recommendationProxy, err := proxy.New(
+		cfg.Services.RecommendationURL,
+		"/api/v1/recommendations",
+	)
+	if err != nil {
+		return err
+	}
+
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Mount("/auth", authProxy)
 		r.Mount("/users", userProxy)
@@ -160,6 +168,7 @@ func registerServiceRoutes(
 		// service routes stay on private networking only.
 		r.Mount("/notifications", notificationProxy)
 		r.Mount("/search", searchProxy)
+		r.Mount("/recommendations", recommendationProxy)
 	})
 
 	return nil
