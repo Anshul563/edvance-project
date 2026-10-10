@@ -166,6 +166,22 @@ func registerServiceRoutes(
 		return err
 	}
 
+	liveProxy, err := proxy.New(
+		cfg.Services.LiveStreamingURL,
+		"/api/v1/live",
+	)
+	if err != nil {
+		return err
+	}
+
+	streamProxy, err := proxy.New(
+		cfg.Services.LiveStreamingURL,
+		"/api/v1/streams",
+	)
+	if err != nil {
+		return err
+	}
+
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Mount("/auth", authProxy)
 		r.Mount("/users", userProxy)
@@ -187,6 +203,8 @@ func registerServiceRoutes(
 		r.Mount("/recommendations", recommendationProxy)
 		r.Mount("/moderation", moderationProxy)
 		r.Mount("/ai", aiProxy)
+		r.Mount("/live", liveProxy)
+		r.Mount("/streams", streamProxy)
 	})
 
 	return nil

@@ -29,6 +29,7 @@ type ServicesConfig struct {
 	RecommendationURL string
 	ModerationURL     string
 	AIURL             string
+	LiveStreamingURL  string
 }
 
 func Load() Config {
@@ -61,6 +62,7 @@ func Load() Config {
 			RecommendationURL: getEnv("RECOMMENDATION_SERVICE_URL", "http://localhost:8093"),
 			ModerationURL:     getEnv("MODERATION_SERVICE_URL", "http://localhost:8094"),
 			AIURL:             getEnv("AI_SERVICE_URL", "http://localhost:8095"),
+			LiveStreamingURL:  getEnv("LIVE_STREAMING_SERVICE_URL", "http://localhost:8096"),
 		},
 	}
 }

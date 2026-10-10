@@ -8,6 +8,7 @@ use (
 	./services/course-service
 	./services/creator-service
 	./services/learning-service
+	./services/live-streaming-service
 	./services/media-service
 	./services/notification-service
 	./services/payment-service
