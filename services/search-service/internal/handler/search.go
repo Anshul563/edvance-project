@@ -279,7 +279,7 @@ func parseSearchParams(r *http.Request, cfg config.Config) (*searchParams, error
 		return nil, errors.New("invalid sort")
 	}
 
-	page := cfg.Pagination.DefaultPageSize
+	page := 1
 	if v := r.URL.Query().Get("page"); v != "" {
 		parsed, err := strconv.Atoi(v)
 		if err != nil || parsed < 1 {

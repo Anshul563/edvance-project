@@ -27,6 +27,7 @@ type ServicesConfig struct {
 	NotificationURL   string
 	SearchURL         string
 	RecommendationURL string
+	ModerationURL     string
 }
 
 func Load() Config {
@@ -57,6 +58,7 @@ func Load() Config {
 			NotificationURL:   getEnv("NOTIFICATION_SERVICE_URL", "http://localhost:8092"),
 			SearchURL:         getEnv("SEARCH_SERVICE_URL", "http://localhost:8091"),
 			RecommendationURL: getEnv("RECOMMENDATION_SERVICE_URL", "http://localhost:8093"),
+			ModerationURL:     getEnv("MODERATION_SERVICE_URL", "http://localhost:8094"),
 		},
 	}
 }
