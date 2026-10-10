@@ -1,0 +1,271 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: edvance-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    container_name: edvance-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+
+  nats:
+    image: nats:2.10.27-alpine
+    container_name: edvance-nats
+    profiles: ["nats"]
+    command: ["-js", "-m", "8222"]
+    ports:
+      - "${NATS_PORT:-4222}:4222"
+      - "${NATS_MONITOR_PORT:-8222}:8222"
+    volumes:
+      - nats_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 4222 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
+  api-gateway:
+    build:
+      context: ../../services/api-gateway
+      dockerfile: Dockerfile
+    image: edvance/api-gateway:local
+    container_name: edvance-api-gateway
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      PORT: "8080"
+      AUTH_SERVICE_URL: "http://auth-service:8081"
+      USER_SERVICE_URL: "http://user-service:8082"
+      CREATOR_SERVICE_URL: "http://creator-service:8083"
+      CONTENT_SERVICE_URL: "http://content-service:8084"
+      VIDEO_SERVICE_URL: "http://video-service:8085"
+      MEDIA_SERVICE_URL: "http://media-service:8091"
+      COURSE_SERVICE_URL: "http://course-service:8086"
+      LEARNING_SERVICE_URL: "http://learning-service:8087"
+      SOCIAL_SERVICE_URL: "http://social-service:8088"
+      COMMERCE_SERVICE_URL: "http://commerce-service:8089"
+      PAYMENT_SERVICE_URL: "http://payment-service:8090"
+      NOTIFICATION_SERVICE_URL: "http://notification-service:8092"
+      SEARCH_SERVICE_URL: "http://search-service:8091"
+      RECOMMENDATION_SERVICE_URL: "http://recommendation-service:8093"
+      MODERATION_SERVICE_URL: "http://moderation-service:8094"
+      AI_SERVICE_URL: "http://ai-service:8095"
+      LIVE_STREAMING_SERVICE_URL: "http://live-streaming-service:8096"
+      ANALYTICS_SERVICE_URL: "http://analytics-service:8097"
+      ADMIN_SERVICE_URL: "http://admin-api:8098"
+    ports:
+      - "8080:8080"
+    depends_on:
+      auth-service:
+        condition: service_started
+      admin-api:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  admin-api:
+    build:
+      context: ../../services/admin-api
+      dockerfile: Dockerfile
+    image: edvance/admin-api:local
+    container_name: edvance-admin-api
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      ADMIN_API_PORT: "8098"
+      DATABASE_URL: ${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/edvance_admin?sslmode=disable}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev-local-jwt-secret}
+      JWT_ISSUER: ${JWT_ISSUER:-edvance-auth}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-edvance-api}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-local-service-token}
+      ADMIN_ALLOWED_USER_IDS: ${ADMIN_ALLOWED_USER_IDS:-00000000-0000-0000-0000-000000000001}
+      ADMIN_ALLOWED_SERVICE_HEALTH: "auth,user,creator,course,payment,analytics,notification,moderation,search,recommendation,ai,live,commerce,content,video,media"
+      AUTH_SERVICE_URL: "http://auth-service:8081"
+      USER_SERVICE_URL: "http://user-service:8082"
+      CREATOR_SERVICE_URL: "http://creator-service:8083"
+      COURSE_SERVICE_URL: "http://course-service:8086"
+      PAYMENT_SERVICE_URL: "http://payment-service:8090"
+      ANALYTICS_SERVICE_URL: "http://analytics-service:8097"
+      NOTIFICATION_SERVICE_URL: "http://notification-service:8092"
+      MODERATION_SERVICE_URL: "http://moderation-service:8094"
+      SEARCH_SERVICE_URL: "http://search-service:8091"
+      RECOMMENDATION_SERVICE_URL: "http://recommendation-service:8093"
+      AI_SERVICE_URL: "http://ai-service:8095"
+      LIVE_STREAMING_SERVICE_URL: "http://live-streaming-service:8096"
+      COMMERCE_SERVICE_URL: "http://commerce-service:8089"
+      CONTENT_SERVICE_URL: "http://content-service:8084"
+      VIDEO_SERVICE_URL: "http://video-service:8085"
+      MEDIA_SERVICE_URL: "http://media-service:8091"
+    ports:
+      - "8098:8098"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8098/health >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  auth-service:
+    build:
+      context: ../../services/auth-service
+      dockerfile: Dockerfile
+    image: edvance/auth-service:local
+    container_name: edvance-auth-service
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      AUTH_SERVICE_PORT: "8081"
+      DATABASE_URL: ${AUTH_DATABASE_URL:-postgres://postgres:postgres@postgres:5432/edvance_auth?sslmode=disable}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev-local-jwt-secret}
+      JWT_ISSUER: ${JWT_ISSUER:-edvance-auth}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-edvance-api}
+      EMAIL_PROVIDER: console
+      EMAIL_VERIFICATION_URL: http://localhost:8080/verify-email
+      PASSWORD_RESET_URL: http://localhost:8080/reset-password
+      ACCESS_TOKEN_TTL: "15m"
+      REFRESH_TOKEN_TTL: "720h"
+      EMAIL_VERIFICATION_TTL: "24h"
+      EMAIL_RESEND_COOLDOWN: "1m"
+      PASSWORD_RESET_TTL: "30m"
+      PASSWORD_RESET_COOLDOWN: "1m"
+    ports:
+      - "8081:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/health >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  analytics-service:
+    build:
+      context: ../../services/analytics-service
+      dockerfile: Dockerfile
+    image: edvance/analytics-service:local
+    container_name: edvance-analytics-service
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      ANALYTICS_SERVICE_PORT: "8097"
+      DATABASE_URL: ${ANALYTICS_DATABASE_URL:-postgres://postgres:postgres@postgres:5432/edvance_analytics?sslmode=disable}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev-local-jwt-secret}
+      JWT_ISSUER: ${JWT_ISSUER:-edvance-auth}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-edvance-api}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-local-service-token}
+    ports:
+      - "8097:8097"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8097/health >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  recommendation-service:
+    build:
+      context: ../../services/recommendation-service
+      dockerfile: Dockerfile
+    image: edvance/recommendation-service:local
+    container_name: edvance-recommendation-service
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      RECOMMENDATION_SERVICE_PORT: "8093"
+      DATABASE_URL: ${RECOMMENDATION_DATABASE_URL:-postgresql+asyncpg://postgres:postgres@postgres:5432/edvance_recommendation}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev-local-jwt-secret}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-local-service-token}
+      SEARCH_SERVICE_URL: "http://search-service:8091"
+      LEARNING_SERVICE_URL: "http://learning-service:8087"
+      SOCIAL_SERVICE_URL: "http://social-service:8088"
+      CONTENT_SERVICE_URL: "http://content-service:8084"
+    ports:
+      - "8093:8093"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8093/health >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  moderation-service:
+    build:
+      context: ../../services/moderation-service
+      dockerfile: Dockerfile
+    image: edvance/moderation-service:local
+    container_name: edvance-moderation-service
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      MODERATION_SERVICE_PORT: "8094"
+      DATABASE_URL: ${MODERATION_DATABASE_URL:-postgresql+asyncpg://postgres:postgres@postgres:5432/edvance_moderation}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev-local-jwt-secret}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-local-service-token}
+      API_GATEWAY_URL: "http://api-gateway:8080"
+      CONTENT_SERVICE_URL: "http://content-service:8084"
+      CREATOR_SERVICE_URL: "http://creator-service:8083"
+      VIDEO_SERVICE_URL: "http://video-service:8085"
+      COURSE_SERVICE_URL: "http://course-service:8086"
+      SOCIAL_SERVICE_URL: "http://social-service:8088"
+    ports:
+      - "8094:8094"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8094/health >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+volumes:
+  postgres_data:
+  redis_data:
+  nats_data:
