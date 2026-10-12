@@ -1,11 +1,16 @@
 package service
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"regexp"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -117,10 +122,11 @@ type LessonStore interface {
 }
 
 type CourseService struct {
-	courses  CourseStore
-	sections SectionStore
-	lessons  LessonStore
-	creators CreatorAuthorization
+	courses          CourseStore
+	sections         SectionStore
+	lessons          LessonStore
+	creators         CreatorAuthorization
+	SearchServiceURL string
 }
 
 func NewCourseService(
@@ -128,16 +134,18 @@ func NewCourseService(
 	sections SectionStore,
 	lessons LessonStore,
 	creators CreatorAuthorization,
+	searchServiceURL string,
 ) *CourseService {
 	if creators == nil {
 		creators = TrustingCreatorAuthorization{}
 	}
 
 	return &CourseService{
-		courses:  courses,
-		sections: sections,
-		lessons:  lessons,
-		creators: creators,
+		courses:          courses,
+		sections:         sections,
+		lessons:          lessons,
+		creators:         creators,
+		SearchServiceURL: searchServiceURL,
 	}
 }
 
@@ -272,6 +280,9 @@ func (s *CourseService) UpdateCourse(
 		return nil, err
 	}
 
+	// Capture previous state for search index refresh.
+	prev := course
+
 	if input.Title != nil {
 		title := strings.TrimSpace(*input.Title)
 
@@ -374,6 +385,39 @@ func (s *CourseService) UpdateCourse(
 		return nil, fmt.Errorf("update course: %w", mapRepoError(err))
 	}
 
+	// Refresh search indexing when visibility, status, or key fields change.
+	changed := false
+	if input.Title != nil && strings.TrimSpace(*input.Title) != course.Title {
+		changed = true
+	}
+	if input.Visibility != nil && string(*input.Visibility) != string(course.Visibility) {
+		changed = true
+	}
+	if input.Level != nil && model.CourseLevel(*input.Level) != course.Level {
+		changed = true
+	}
+	if input.Language != nil && strings.TrimSpace(*input.Language) != course.Language {
+		changed = true
+	}
+	if input.Description != nil && course.Description != nil && *input.Description != *course.Description {
+		changed = true
+	}
+	if input.PriceCents != nil && course.PriceCents != *input.PriceCents {
+		changed = true
+	}
+	if input.Currency != nil && course.Currency != strings.ToUpper(strings.TrimSpace(*input.Currency)) {
+		changed = true
+	}
+
+	if changed {
+		if err := s.notifyCourseUpdated(course, prev); err != nil {
+			_ = err
+			// Best-effort: do not fail the course update because of search index
+			// failure. Log via the service's error format; operator should ensure
+			// SEARCH_SERVICE_URL is configured.
+		}
+	}
+
 	return course, nil
 }
 
@@ -451,6 +495,13 @@ func (s *CourseService) PublishCourse(
 		return nil, fmt.Errorf("publish course: %w", mapRepoError(err))
 	}
 
+	if err := s.notifyCoursePublished(published); err != nil {
+		_ = err
+		// Best-effort: do not fail the course publish because of search index
+		// failure. Log via the service's error format; operator should ensure
+		// SEARCH_SERVICE_URL is configured.
+	}
+
 	return published, nil
 }
 
@@ -467,6 +518,13 @@ func (s *CourseService) ArchiveCourse(
 	archived, err := s.courses.ArchiveCourse(ctx, courseID)
 	if err != nil {
 		return nil, fmt.Errorf("archive course: %w", mapRepoError(err))
+	}
+
+	if err := s.notifyCourseUnpublished(archived); err != nil {
+		_ = err
+		// Best-effort: do not fail the archive operation because of search index
+		// failure. Log via the service's error format; operator should ensure
+		// SEARCH_SERVICE_URL is configured.
 	}
 
 	return archived, nil
@@ -1042,4 +1100,126 @@ func mapRepoError(err error) error {
 	default:
 		return err
 	}
+}
+
+// searchDocument represents the minimal fields needed for search indexing.
+type searchDocument struct {
+	ID          uuid.UUID `json:"id"`
+	SourceType  string    `json:"source_type"`
+	SourceID    uuid.UUID `json:"source_id"`
+	Title       string    `json:"title"`
+	Description string    `json:"description"`
+	Category    string    `json:"category"`
+	Language    string    `json:"language"`
+	Visibility  string    `json:"visibility"`
+	PriceCents  int64     `json:"price_cents"`
+	Currency    string    `json:"currency"`
+	PublishedAt string    `json:"published_at"`
+	CreatedAt   string    `json:"created_at"`
+}
+
+// notifySearchService invokes the search service internal API to update the
+// search index for a course. This is called when course state changes
+// (publish, update, archive) to keep the search projection in sync.
+func (s *CourseService) notifySearchService(course *model.Course, eventType model.CourseEventType, prev *model.Course) error {
+	if s.SearchServiceURL == "" {
+		// Search service URL not configured; best-effort: do not fail
+		// the course operation if the search service is unavailable.
+		return nil
+	}
+
+	var payloadBytes io.Reader
+	var err error
+	var payloadData []byte
+
+	if eventType == model.CourseEventPublished || eventType == model.CourseEventUpdated {
+		payload := map[string]interface{}{
+			"source_type": "course",
+			"source_id":   course.ID.String(),
+			"title":       course.Title,
+			"description": func() string {
+				if course.Description != nil {
+					return *course.Description
+				}
+				return ""
+			}(),
+			"category":    string(course.Level),
+			"language":    course.Language,
+			"visibility":  string(course.Visibility),
+			"price_cents": course.PriceCents,
+			"currency":    course.Currency,
+			"published_at": func() string {
+				if course.PublishedAt != nil {
+					return course.PublishedAt.Format(time.RFC3339)
+				}
+				return ""
+			}(),
+		}
+		payloadData, err = json.Marshal(payload)
+		if err != nil {
+			payloadData = nil
+		}
+	} else if eventType == model.CourseEventUnpublished {
+		payload := map[string]interface{}{
+			"source_type": "course",
+			"source_id":   course.ID.String(),
+		}
+		payloadData, err = json.Marshal(payload)
+		if err != nil {
+			payloadData = nil
+		}
+	} else if eventType == model.CourseEventDeleted {
+		payload := map[string]interface{}{
+			"source_type": "course",
+			"source_id":   course.ID.String(),
+		}
+		payloadData, err = json.Marshal(payload)
+		if err != nil {
+			payloadData = nil
+		}
+	}
+
+	if payloadData != nil {
+		payloadBytes = bytes.NewReader(payloadData)
+	}
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, s.SearchServiceURL+"/internal/v1/search/documents/course/"+course.ID.String(), payloadBytes)
+	if err != nil {
+		return fmt.Errorf("create search request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("notify search service: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("search service returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	return nil
+}
+
+// notifyCoursePublished publishes a course.published event to the search service.
+func (s *CourseService) notifyCoursePublished(course *model.Course) error {
+	return s.notifySearchService(course, model.CourseEventPublished, nil)
+}
+
+// notifyCourseUpdated publishes a course.updated event to the search service.
+func (s *CourseService) notifyCourseUpdated(course *model.Course, prev *model.Course) error {
+	return s.notifySearchService(course, model.CourseEventUpdated, prev)
+}
+
+// notifyCourseUnpublished publishes a course.unpublished event to the search service.
+func (s *CourseService) notifyCourseUnpublished(course *model.Course) error {
+	return s.notifySearchService(course, model.CourseEventUnpublished, nil)
+}
+
+// notifyCourseDeleted publishes a course.deleted event to the search service.
+func (s *CourseService) notifyCourseDeleted(course *model.Course) error {
+	return s.notifySearchService(course, model.CourseEventDeleted, nil)
 }

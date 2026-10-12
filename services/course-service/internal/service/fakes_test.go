@@ -816,7 +816,7 @@ func newFixture() *fixture {
 	auth := &fakeAuthorizer{}
 
 	return &fixture{
-		courses:      NewCourseService(courseStore, sectionStore, lessonStore, auth),
+		courses:      NewCourseService(courseStore, sectionStore, lessonStore, auth, ""),
 		sections:     NewSectionService(sectionStore, courseStore, auth),
 		lessons:      NewLessonService(lessonStore, sectionStore, courseStore, auth),
 		courseStore:  courseStore,

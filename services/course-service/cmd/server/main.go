@@ -76,6 +76,7 @@ func main() {
 		sectionRepository,
 		lessonRepository,
 		authorizer,
+		cfg.SearchServiceURL,
 	)
 
 	sectionService := service.NewSectionService(

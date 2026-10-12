@@ -12,6 +12,7 @@ type Config struct {
 
 	Database DatabaseConfig
 	JWT      JWTConfig
+	SearchServiceURL string
 }
 
 type DatabaseConfig struct {
@@ -52,6 +53,8 @@ func Load() (Config, error) {
 			Issuer:       getEnv("JWT_ISSUER", "edvance-auth"),
 			Audience:     getEnv("JWT_AUDIENCE", "edvance-api"),
 		},
+
+		SearchServiceURL: getEnv("SEARCH_SERVICE_URL", ""),
 	}
 
 	// Same shared HMAC secret as auth-service: course-service only
@@ -74,3 +77,7 @@ func getEnv(key, fallback string) string {
 
 	return value
 }
+
+// SearchServiceURL is the URL of the search service internal API.
+// The course service calls this service's internal endpoints when courses
+// change state to keep the search projection in sync.
