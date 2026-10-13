@@ -4,7 +4,6 @@ from typing import Annotated
 
 import jwt
 from fastapi import Header, HTTPException, status
-from jwt import InvalidTokenError
 
 from app.config import get_settings
 
@@ -32,7 +31,7 @@ def get_current_user_id(
         return None
     try:
         claims = decode_access_token(token)
-    except (ValueError, InvalidTokenError):
+    except Exception:
         return None
     return str(claims.get("sub") or claims.get("user_id") or "") or None
 
@@ -47,7 +46,7 @@ def get_token_claims(
         return {}
     try:
         return decode_access_token(token)
-    except (ValueError, InvalidTokenError):
+    except Exception:
         return {}
 
 
