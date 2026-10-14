@@ -1,0 +1,57 @@
+import type { Notification } from "@/src/types/creator"
+
+export const sampleNotifications: Notification[] = [
+  {
+    id: "n1",
+    type: "enrollment",
+    title: "New enrollment",
+    message: "Sarah Johnson enrolled in your Python Masterclass course",
+    read: false,
+    createdAt: "2024-05-15",
+    actionUrl: "/courses",
+  },
+  {
+    id: "n2",
+    type: "review",
+    title: "New review",
+    message: "5-star review for Python Masterclass",
+    read: true,
+    createdAt: "2024-05-10",
+    actionUrl: "/courses",
+  },
+  {
+    id: "n3",
+    type: "earnings",
+    title: "Payout initiated",
+    message: "$450.00 earnings paid out successfully",
+    read: false,
+    createdAt: "2024-05-12",
+    actionUrl: "/earnings",
+  },
+  {
+    id: "n4",
+    type: "system",
+    title: "Platform update",
+    message: "New feature: Course analytics dashboard released",
+    read: true,
+    createdAt: "2024-05-08",
+  },
+  {
+    id: "n5",
+    type: "enrollment",
+    title: "New enrollment",
+    message: "Michael Chen enrolled in your JavaScript Bootcamp course",
+    read: false,
+    createdAt: "2024-05-13",
+    actionUrl: "/courses",
+  },
+  {
+    id: "n6",
+    type: "review",
+    title: "New review",
+    message: "4-star review for JavaScript Bootcamp",
+    read: true,
+    createdAt: "2024-05-09",
+    actionUrl: "/courses",
+  },
+]
