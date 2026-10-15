@@ -20,6 +20,8 @@ import {
 import { demoStore } from "@/src/lib/demo-store"
 import type { Notification } from "@/src/types/creator"
 import { Sidebar, SidebarNav, navItems } from "@/components/sidebar/Sidebar"
+import api from "@/api-client"
+import { initialsOf, useSessionUser } from "@/hooks/use-session-user"
 
 import {
   SidebarLeftIcon,
@@ -181,11 +183,15 @@ export default function CreatorLayout({
   children: React.ReactNode
 }) {
   const pathname = usePathname()
+  const router = useRouter()
+  const sessionUser = useSessionUser()
+  const displayName = sessionUser?.displayName || "Creator"
 
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
   const [userOpen, setUserOpen] = useState(false)
+  const [signingOut, setSigningOut] = useState(false)
   const [notifications, setNotifications] = useState<Notification[]>([])
 
   const notifRef = useRef<HTMLDivElement>(null)
@@ -229,6 +235,17 @@ export default function CreatorLayout({
   function handleMarkAllRead() {
     demoStore.markAllNotificationsAsRead()
     setNotifications(demoStore.getNotifications())
+  }
+
+  async function handleSignOut() {
+    if (signingOut) return
+    setSigningOut(true)
+    setUserOpen(false)
+    try {
+      await api.logout()
+    } finally {
+      router.push("/login")
+    }
   }
 
   return (
@@ -372,19 +389,19 @@ export default function CreatorLayout({
               aria-expanded={userOpen}
             >
               <span className="flex size-8 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-                AM
+                {initialsOf(displayName)}
               </span>
             </Button>
 
             {userOpen && (
               <div className="absolute right-0 top-full z-50 mt-2 w-60 overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-xl">
                 <div className="border-b border-border px-4 py-4">
-                  <p className="text-sm font-semibold">Alex Morgan</p>
+                  <p className="text-sm font-semibold">{displayName}</p>
                   <p className="mt-1 truncate text-xs text-muted-foreground">
-                    alex.morgan@edvance.io
+                    {sessionUser?.email || "Signed in"}
                   </p>
                   <span className="mt-2 inline-flex rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
-                    Creator account
+                    {sessionUser?.emailVerified ? "Creator account" : "Email unverified"}
                   </span>
                 </div>
 
@@ -404,15 +421,16 @@ export default function CreatorLayout({
 
                   <button
                     type="button"
-                    className="flex min-h-10 w-full items-center gap-3 rounded-md px-3 text-left text-sm text-destructive transition-colors hover:bg-destructive/10"
-                    onClick={() => setUserOpen(false)}
+                    className="flex min-h-10 w-full items-center gap-3 rounded-md px-3 text-left text-sm text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-60"
+                    onClick={handleSignOut}
+                    disabled={signingOut}
                   >
                     <HugeiconsIcon
                       icon={Logout01Icon}
                       strokeWidth={1.8}
                       className="size-4"
                     />
-                    Sign out (demo)
+                    {signingOut ? "Signing out..." : "Sign out"}
                   </button>
                 </div>
               </div>

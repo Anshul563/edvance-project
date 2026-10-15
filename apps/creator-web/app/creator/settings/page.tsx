@@ -9,6 +9,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Separator } from "@/components/ui/separator"
+import type { SessionUser } from "@/api-client"
+import { initialsOf, useSessionUser } from "@/hooks/use-session-user"
 
 type Tab = "profile" | "account" | "notifications" | "appearance" | "payout" | "security"
 const TABS: { id: Tab; label: string }[] = [
@@ -21,22 +23,29 @@ const TABS: { id: Tab; label: string }[] = [
 ]
 
 export default function SettingsPage() {
+  const user = useSessionUser()
+  // Remount once the profile cookie is read so state seeded from `user`
+  // initializes with real values (the server render has no cookie access).
+  return <SettingsContent key={user?.id || "guest"} user={user} />
+}
+
+function SettingsContent({ user }: { user: SessionUser | null }) {
   const [tab, setTab] = useState<Tab>("profile")
 
   // Profile state
   const [profile, setProfile] = useState({
-    name: "Alex Morgan",
-    tagline: "Full-Stack Developer & Educator",
-    bio: "Teaching programming and productivity skills to help developers level up their careers.",
-    website: "https://alexmorgan.dev",
-    twitter: "@alexmorgandev",
-    linkedin: "https://linkedin.com/in/alexmorgandev",
-    github: "https://github.com/alexmorgan",
+    name: user?.displayName || "",
+    tagline: "",
+    bio: "",
+    website: "",
+    twitter: "",
+    linkedin: "",
+    github: "",
   })
 
   // Account state
   const [account, setAccount] = useState({
-    displayName: "Alex Morgan",
+    displayName: user?.displayName || "",
     language: "en",
     timezone: "America/New_York",
   })
@@ -89,7 +98,9 @@ export default function SettingsPage() {
           {tab === "profile" && (
             <>
               <div className="flex items-center gap-4">
-                <div className="flex h-16 w-16 items-center justify-center bg-primary text-primary-foreground text-xl font-bold">AM</div>
+                <div className="flex h-16 w-16 items-center justify-center bg-primary text-primary-foreground text-xl font-bold">
+                  {initialsOf(user?.displayName || "Creator")}
+                </div>
                 <Button variant="outline" size="sm" onClick={() => toast.info("Demo", { description: "Photo upload is simulated." })}>Change Photo</Button>
               </div>
               {[
@@ -115,10 +126,33 @@ export default function SettingsPage() {
 
           {tab === "account" && (
             <>
+              {user && !user.emailVerified && (
+                <div className="border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-800 dark:bg-amber-900/20">
+                  <p className="text-xs font-medium text-amber-800 dark:text-amber-400">
+                    Email not verified
+                  </p>
+                  <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-500">
+                    Check your inbox for a verification link to unlock all creator features.
+                  </p>
+                </div>
+              )}
               <div>
                 <Label className="text-xs font-medium">Email</Label>
-                <p className="mt-1 text-xs text-muted-foreground bg-muted px-3 py-2">alex.morgan@edvance.io</p>
-                <p className="mt-1 text-xs text-muted-foreground">Email cannot be changed in this demo.</p>
+                <p className="mt-1 break-all text-xs text-muted-foreground bg-muted px-3 py-2">
+                  {user?.email || "—"}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Contact support to change your email address.
+                </p>
+              </div>
+              <div>
+                <Label className="text-xs font-medium">Username</Label>
+                <p className="mt-1 text-xs text-muted-foreground bg-muted px-3 py-2">
+                  {user?.username ? `@${user.username}` : "—"}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Usernames are permanent and shown across the studio.
+                </p>
               </div>
               <div>
                 <Label htmlFor="a-name" className="text-xs font-medium">Display Name</Label>

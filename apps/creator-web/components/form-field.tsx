@@ -4,6 +4,7 @@ import { cn } from "cn"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
+import { PasswordInput } from "@/components/auth/password-input"
 
 interface FormFieldProps {
   id: string
@@ -16,8 +17,12 @@ interface FormFieldProps {
   disabled?: boolean
   required?: boolean
   hint?: string
-  error?: string
+  error?: string | null
   className?: string
+  labelClassName?: string
+  inputClassName?: string
+  autoComplete?: string
+  inputMode?: React.HTMLAttributes<HTMLInputElement>["inputMode"]
   rows?: number
 }
 
@@ -34,11 +39,15 @@ export function FormField({
   hint,
   error,
   className,
+  labelClassName,
+  inputClassName,
+  autoComplete,
+  inputMode,
   rows = 3,
 }: FormFieldProps) {
   return (
     <div className={cn("flex flex-col gap-1", className)}>
-      <Label htmlFor={id} className="text-xs font-medium">
+      <Label htmlFor={id} className={cn("text-xs font-medium", labelClassName)}>
         {label}
         {required && <span className="ml-0.5 text-destructive">*</span>}
       </Label>
@@ -78,7 +87,22 @@ export function FormField({
         </select>
       )}
 
-      {type !== "textarea" && type !== "select" && (
+      {type !== "textarea" && type !== "select" && type === "password" && (
+        <PasswordInput
+          id={id}
+          placeholder={placeholder}
+          value={value}
+          onChange={(e) => onChange?.(e.target.value)}
+          disabled={disabled}
+          autoComplete={autoComplete}
+          inputMode={inputMode}
+          className={cn(error && "border-destructive", inputClassName)}
+          aria-describedby={hint || error ? `${id}-hint` : undefined}
+          aria-invalid={!!error}
+        />
+      )}
+
+      {type !== "textarea" && type !== "select" && type !== "password" && (
         <Input
           id={id}
           type={type}
@@ -86,7 +110,9 @@ export function FormField({
           value={value}
           onChange={(e) => onChange?.(e.target.value)}
           disabled={disabled}
-          className={cn(error && "border-destructive")}
+          autoComplete={autoComplete}
+          inputMode={inputMode}
+          className={cn(error && "border-destructive", inputClassName)}
           aria-describedby={hint || error ? `${id}-hint` : undefined}
           aria-invalid={!!error}
         />

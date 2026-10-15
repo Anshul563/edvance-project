@@ -20,8 +20,10 @@ import {
   HelpCircleIcon,
   SidebarLeftIcon,
   Users,
+  Add02Icon,
 } from "@hugeicons/core-free-icons"
 import { cn } from "@/lib/utils"
+import { initialsOf, useSessionUser } from "@/hooks/use-session-user"
 
 type NavItem = {
   href: string
@@ -33,7 +35,7 @@ type NavItem = {
 export const navItems: NavItem[] = [
   { href: "/creator", label: "Overview", icon: LayoutIcon, exact: true },
   { href: "/creator/courses", label: "My Courses", icon: Book01Icon },
-  { href: "/creator/create", label: "Create Course", icon: Add01Icon },
+  { href: "/creator/create", label: "Create Course", icon: Add02Icon },
   { href: "/creator/media", label: "Media Library", icon: Image01Icon },
   { href: "/creator/students", label: "Students", icon: Users },
   { href: "/creator/analytics", label: "Analytics", icon: TrendingUp },
@@ -106,32 +108,17 @@ export function Sidebar({
   setCollapsed,
   sidebarW,
 }: SidebarProps) {
-  const leaveRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
-  const enterRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  React.useEffect(() => {
-    return () => {
-      if (leaveRef.current) clearTimeout(leaveRef.current)
-      if (enterRef.current) clearTimeout(enterRef.current)
-    }
-  }, [])
+  const sessionUser = useSessionUser()
+  const displayName = sessionUser?.displayName || "Creator"
 
   return (
     <aside
-      className="fixed inset-y-0 left-0 z-30 hidden h-screen flex-col border-r border-border bg-sidebar backdrop-blur-md transition-all duration-300 ease-in-out md:flex"
+      className="fixed inset-y-0 left-0 z-30 hidden h-screen flex-col border-r border-border bg-sidebar transition-[width] duration-200 ease-out md:flex"
       style={{ width: sidebarW }}
-      onMouseLeave={() => {
-        if (enterRef.current) clearTimeout(enterRef.current)
-        leaveRef.current = setTimeout(() => setCollapsed(true), 3000)
-      }}
-      onMouseEnter={() => {
-        if (leaveRef.current) clearTimeout(leaveRef.current)
-        enterRef.current = setTimeout(() => setCollapsed(false), 100)
-      }}
     >
       {/* Logo Section */}
-      <div className="flex h-16 shrink-0 items-center overflow-hidden border-b border-border bg-sidebar/50 px-4">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+      <div className="flex h-16 shrink-0 items-center overflow-hidden border-b border-border px-4">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl">
           <Image
             src="/logo.svg"
             alt="Edvance logo"
@@ -157,14 +144,14 @@ export function Sidebar({
         {!collapsed && (
           <div className="flex items-center gap-3 px-4 py-3">
             <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-primary/10 text-[10px] font-semibold text-primary">
-              AM
+              {initialsOf(displayName)}
             </div>
             <div className="min-w-0">
               <p className="truncate text-xs font-medium text-sidebar-foreground">
-                Alex Morgan
+                {displayName}
               </p>
               <p className="truncate text-xs text-sidebar-foreground/60">
-                Creator
+                {sessionUser?.username ? `@${sessionUser.username}` : "Creator"}
               </p>
             </div>
           </div>

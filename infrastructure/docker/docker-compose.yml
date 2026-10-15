@@ -114,7 +114,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8098/health >/dev/null 2>&1 || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8098/healthz >/dev/null 2>&1 || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -136,8 +136,8 @@ services:
       JWT_ISSUER: ${JWT_ISSUER:-edvance-auth}
       JWT_AUDIENCE: ${JWT_AUDIENCE:-edvance-api}
       EMAIL_PROVIDER: console
-      EMAIL_VERIFICATION_URL: http://localhost:8080/verify-email
-      PASSWORD_RESET_URL: http://localhost:8080/reset-password
+      EMAIL_VERIFICATION_URL: http://localhost:3000/verify-email
+      PASSWORD_RESET_URL: http://localhost:3000/reset-password
       ACCESS_TOKEN_TTL: "15m"
       REFRESH_TOKEN_TTL: "720h"
       EMAIL_VERIFICATION_TTL: "24h"

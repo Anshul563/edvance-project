@@ -16,8 +16,18 @@ import {
   ArrowRight01Icon,
   Book01Icon,
   Image01Icon,
+  LiveStreaming02Icon,
+  Add02Icon,
 } from "@hugeicons/core-free-icons"
-import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid } from "recharts"
+import {
+  AreaChart,
+  Area,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+} from "recharts"
 import {
   ChartContainer,
   ChartTooltip,
@@ -60,40 +70,54 @@ export default function OverviewPage() {
 
   const totalRevenue = allCourses.reduce((s, c) => s + c.revenue, 0)
   const totalStudents = allCourses.reduce((s, c) => s + c.students, 0)
-  const publishedCount = allCourses.filter((c) => c.status === "published").length
-  const avgRating = allCourses.reduce((s, c) => s + c.rating, 0) / allCourses.length
+  const publishedCount = allCourses.filter(
+    (c) => c.status === "published"
+  ).length
+  const avgRating =
+    allCourses.reduce((s, c) => s + c.rating, 0) / allCourses.length
   const draftCourse = allCourses.find((c) => c.status === "draft")
 
   return (
-    <div className="p-4 sm:p-6 space-y-6">
+    <div className="space-y-6 p-4 sm:p-6">
       {/* Welcome */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 sm:gap-5">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-5">
         <div>
-          <h2 className="text-xl font-semibold sm:text-2xl">Hello, Alex Morgan 👋</h2>
-          <p className="mt-1 text-xs sm:text-sm text-muted-foreground">
-            Here&apos;s your creator overview — <span className="font-medium">May 15, 2024</span>
+          <h2 className="text-xl font-semibold sm:text-2xl">
+            Hello, Alex Morgan 👋
+          </h2>
+          <p className="mt-1 text-xs text-muted-foreground sm:text-sm">
+            Here&apos;s your creator overview —{" "}
+            <span className="font-medium">May 15, 2024</span>
           </p>
         </div>
         <div className="flex gap-3">
           <Link
             href="/creator/create"
-            className="inline-flex items-center gap-1.5 border border-primary bg-primary px-4 py-2 text-xs sm:text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors rounded-none"
+            className="inline-flex items-center gap-1.5 rounded-none border border-primary bg-primary px-4 py-2 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 sm:text-sm"
           >
-            <HugeiconsIcon icon={Add01Icon} strokeWidth={2} className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+            <HugeiconsIcon
+              icon={Add02Icon}
+              strokeWidth={2}
+              className="h-3.5 w-3.5 sm:h-4 sm:w-4"
+            />
             Create Course
           </Link>
           <Link
             href="/creator/analytics"
-            className="inline-flex items-center gap-1.5 border border-border px-4 py-2 text-xs sm:text-sm font-medium hover:bg-muted transition-colors rounded-none"
+            className="inline-flex items-center gap-1.5 rounded-none border border-border px-4 py-2 text-xs font-medium transition-colors hover:bg-muted sm:text-sm"
           >
-            <HugeiconsIcon icon={TrendingUp} strokeWidth={2} className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-            Analytics
+            <HugeiconsIcon
+              icon={LiveStreaming02Icon}
+              strokeWidth={2}
+              className="h-3.5 w-3.5 sm:h-4 sm:w-4"
+            />
+            Go Live
           </Link>
         </div>
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3">
         <KPICard
           title="Total Revenue"
           value={`$${totalRevenue.toLocaleString()}`}
@@ -142,7 +166,7 @@ export default function OverviewPage() {
                 key={p}
                 onClick={() => setPeriod(p)}
                 className={cn(
-                  "px-2 py-0.5 text-xs border transition-colors",
+                  "border px-2 py-0.5 text-xs transition-colors",
                   period === p
                     ? "border-primary bg-primary text-primary-foreground"
                     : "border-border hover:bg-muted"
@@ -155,26 +179,72 @@ export default function OverviewPage() {
         </div>
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
           <div className="border border-border p-5">
-            <p className="mb-3 text-xs text-muted-foreground">Revenue over time</p>
+            <p className="mb-3 text-xs text-muted-foreground">
+              Revenue over time
+            </p>
             <ChartContainer config={revenueConfig} className="h-[240px] w-full">
-              <AreaChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+              <AreaChart
+                data={chartData}
+                margin={{ top: 4, right: 8, bottom: 0, left: 0 }}
+              >
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="date" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
-                <YAxis tick={{ fontSize: 10 }} tickLine={false} axisLine={false} width={40} />
+                <XAxis
+                  dataKey="date"
+                  tick={{ fontSize: 10 }}
+                  tickLine={false}
+                  axisLine={false}
+                  interval="preserveStartEnd"
+                />
+                <YAxis
+                  tick={{ fontSize: 10 }}
+                  tickLine={false}
+                  axisLine={false}
+                  width={40}
+                />
                 <ChartTooltip content={<ChartTooltipContent />} />
-                <Area type="monotone" dataKey="revenue" stroke="var(--color-revenue)" fill="var(--color-revenue)" fillOpacity={0.12} strokeWidth={2} />
+                <Area
+                  type="monotone"
+                  dataKey="revenue"
+                  stroke="var(--color-revenue)"
+                  fill="var(--color-revenue)"
+                  fillOpacity={0.12}
+                  strokeWidth={2}
+                />
               </AreaChart>
             </ChartContainer>
           </div>
           <div className="border border-border p-5">
-            <p className="mb-3 text-xs text-muted-foreground">Student enrollments</p>
-            <ChartContainer config={enrollmentConfig} className="h-[240px] w-full">
-              <BarChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+            <p className="mb-3 text-xs text-muted-foreground">
+              Student enrollments
+            </p>
+            <ChartContainer
+              config={enrollmentConfig}
+              className="h-[240px] w-full"
+            >
+              <BarChart
+                data={chartData}
+                margin={{ top: 4, right: 8, bottom: 0, left: 0 }}
+              >
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="date" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
-                <YAxis tick={{ fontSize: 10 }} tickLine={false} axisLine={false} width={32} />
+                <XAxis
+                  dataKey="date"
+                  tick={{ fontSize: 10 }}
+                  tickLine={false}
+                  axisLine={false}
+                  interval="preserveStartEnd"
+                />
+                <YAxis
+                  tick={{ fontSize: 10 }}
+                  tickLine={false}
+                  axisLine={false}
+                  width={32}
+                />
                 <ChartTooltip content={<ChartTooltipContent />} />
-                <Bar dataKey="enrollments" fill="var(--color-enrollments)" radius={0} />
+                <Bar
+                  dataKey="enrollments"
+                  fill="var(--color-enrollments)"
+                  radius={0}
+                />
               </BarChart>
             </ChartContainer>
           </div>
@@ -187,19 +257,32 @@ export default function OverviewPage() {
         <div className="border border-border p-4">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-xs font-medium">Recent Enrollments</h3>
-            <Link href="/creator/students" className="flex items-center gap-0.5 text-xs text-primary hover:underline">
-              View all <HugeiconsIcon icon={ArrowRight01Icon} strokeWidth={2} className="h-3 w-3" />
+            <Link
+              href="/creator/students"
+              className="flex items-center gap-0.5 text-xs text-primary hover:underline"
+            >
+              View all{" "}
+              <HugeiconsIcon
+                icon={ArrowRight01Icon}
+                strokeWidth={2}
+                className="h-3 w-3"
+              />
             </Link>
           </div>
           <div className="space-y-2.5">
             {recentStudents.map((s) => (
               <div key={s.id} className="flex items-center gap-2.5">
                 <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center bg-primary/10 text-xs font-semibold text-primary">
-                  {s.name.split(" ").map((n) => n[0]).join("")}
+                  {s.name
+                    .split(" ")
+                    .map((n) => n[0])
+                    .join("")}
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-xs font-medium">{s.name}</p>
-                  <p className="truncate text-xs text-muted-foreground">{s.enrolledCourse}</p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {s.enrolledCourse}
+                  </p>
                 </div>
               </div>
             ))}
@@ -210,8 +293,16 @@ export default function OverviewPage() {
         <div className="border border-border p-5">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-sm font-medium">Top Courses</h3>
-            <Link href="/creator/courses" className="flex items-center gap-0.5 text-xs text-primary hover:underline">
-              View all <HugeiconsIcon icon={ArrowRight01Icon} strokeWidth={2} className="h-3 w-3" />
+            <Link
+              href="/creator/courses"
+              className="flex items-center gap-0.5 text-xs text-primary hover:underline"
+            >
+              View all{" "}
+              <HugeiconsIcon
+                icon={ArrowRight01Icon}
+                strokeWidth={2}
+                className="h-3 w-3"
+              />
             </Link>
           </div>
           <div className="space-y-3">
@@ -222,7 +313,10 @@ export default function OverviewPage() {
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{c.title}</p>
-                  <p className="text-xs text-muted-foreground">{c.students.toLocaleString()} students · ${c.revenue.toLocaleString()}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {c.students.toLocaleString()} students · $
+                    {c.revenue.toLocaleString()}
+                  </p>
                 </div>
               </div>
             ))}
@@ -233,8 +327,16 @@ export default function OverviewPage() {
         <div className="border border-border p-5">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-sm font-medium">Recent Reviews</h3>
-            <Link href="/creator/reviews" className="flex items-center gap-0.5 text-xs text-primary hover:underline">
-              View all <HugeiconsIcon icon={ArrowRight01Icon} strokeWidth={2} className="h-3 w-3" />
+            <Link
+              href="/creator/reviews"
+              className="flex items-center gap-0.5 text-xs text-primary hover:underline"
+            >
+              View all{" "}
+              <HugeiconsIcon
+                icon={ArrowRight01Icon}
+                strokeWidth={2}
+                className="h-3 w-3"
+              />
             </Link>
           </div>
           <div className="space-y-3">
@@ -246,12 +348,21 @@ export default function OverviewPage() {
                       key={i}
                       icon={StarIcon}
                       strokeWidth={2}
-                      className={cn("h-3 w-3", i < r.rating ? "text-amber-400" : "text-muted-foreground/30")}
+                      className={cn(
+                        "h-3 w-3",
+                        i < r.rating
+                          ? "text-amber-400"
+                          : "text-muted-foreground/30"
+                      )}
                     />
                   ))}
-                  <span className="ml-1 text-xs text-muted-foreground">{r.createdAt}</span>
+                  <span className="ml-1 text-xs text-muted-foreground">
+                    {r.createdAt}
+                  </span>
                 </div>
-                <p className="line-clamp-2 text-xs text-muted-foreground">{r.content}</p>
+                <p className="line-clamp-2 text-xs text-muted-foreground">
+                  {r.content}
+                </p>
               </div>
             ))}
           </div>
@@ -263,23 +374,43 @@ export default function OverviewPage() {
         {draftCourse && (
           <div className="border border-border p-5">
             <h3 className="mb-3 text-sm font-medium">
-              Publishing checklist — <span className="text-muted-foreground">{draftCourse.title}</span>
+              Publishing checklist —{" "}
+              <span className="text-muted-foreground">{draftCourse.title}</span>
             </h3>
             <div className="space-y-2.5">
               {[
-                { label: "Course title and subtitle", done: !!draftCourse.title },
-                { label: "Course description", done: !!draftCourse.description },
+                {
+                  label: "Course title and subtitle",
+                  done: !!draftCourse.title,
+                },
+                {
+                  label: "Course description",
+                  done: !!draftCourse.description,
+                },
                 { label: "Thumbnail", done: false },
-                { label: "At least one lesson", done: draftCourse.lessons.length > 0 },
+                {
+                  label: "At least one lesson",
+                  done: draftCourse.lessons.length > 0,
+                },
                 { label: "Pricing configured", done: !!draftCourse.pricing },
               ].map((item) => (
                 <div key={item.label} className="flex items-center gap-2.5">
                   <HugeiconsIcon
                     icon={CheckmarkCircle01Icon}
                     strokeWidth={2}
-                    className={cn("h-3.5 w-3.5 flex-shrink-0", item.done ? "text-green-500" : "text-muted-foreground/40")}
+                    className={cn(
+                      "h-3.5 w-3.5 flex-shrink-0",
+                      item.done ? "text-green-500" : "text-muted-foreground/40"
+                    )}
                   />
-                  <span className={cn("text-xs", !item.done && "text-muted-foreground")}>{item.label}</span>
+                  <span
+                    className={cn(
+                      "text-xs",
+                      !item.done && "text-muted-foreground"
+                    )}
+                  >
+                    {item.label}
+                  </span>
                 </div>
               ))}
             </div>
@@ -287,7 +418,12 @@ export default function OverviewPage() {
               href={`/creator/courses/${draftCourse.id}/edit`}
               className="mt-3 inline-flex items-center gap-1 text-xs text-primary hover:underline"
             >
-              Continue editing <HugeiconsIcon icon={ArrowRight01Icon} strokeWidth={2} className="h-3 w-3" />
+              Continue editing{" "}
+              <HugeiconsIcon
+                icon={ArrowRight01Icon}
+                strokeWidth={2}
+                className="h-3 w-3"
+              />
             </Link>
           </div>
         )}
@@ -296,17 +432,37 @@ export default function OverviewPage() {
           <h3 className="mb-3 text-sm font-medium">Quick Actions</h3>
           <div className="grid grid-cols-2 gap-3">
             {[
-              { label: "Create Course", icon: Add01Icon, href: "/creator/create" },
-              { label: "Media Library", icon: Image01Icon, href: "/creator/media" },
-              { label: "Analytics", icon: TrendingUp, href: "/creator/analytics" },
-              { label: "My Courses", icon: Book01Icon, href: "/creator/courses" },
+              {
+                label: "Create Course",
+                icon: Add01Icon,
+                href: "/creator/create",
+              },
+              {
+                label: "Media Library",
+                icon: Image01Icon,
+                href: "/creator/media",
+              },
+              {
+                label: "Analytics",
+                icon: TrendingUp,
+                href: "/creator/analytics",
+              },
+              {
+                label: "My Courses",
+                icon: Book01Icon,
+                href: "/creator/courses",
+              },
             ].map((item) => (
               <Link
                 key={item.label}
                 href={item.href}
-                className="flex items-center gap-2.5 border border-border p-3.5 hover:bg-muted transition-colors"
+                className="flex items-center gap-2.5 border border-border p-3.5 transition-colors hover:bg-muted"
               >
-                <HugeiconsIcon icon={item.icon} strokeWidth={2} className="h-4 w-4 flex-shrink-0 text-primary" />
+                <HugeiconsIcon
+                  icon={item.icon}
+                  strokeWidth={2}
+                  className="h-4 w-4 flex-shrink-0 text-primary"
+                />
                 <span className="text-xs font-medium">{item.label}</span>
               </Link>
             ))}
