@@ -13,6 +13,8 @@ import (
 
 	"github.com/Anshul563/edvance-project/services/live-streaming-service/internal/config"
 	"github.com/Anshul563/edvance-project/services/live-streaming-service/internal/handler"
+	"github.com/Anshul563/edvance-project/services/live-streaming-service/internal/mediamtx"
+	"github.com/Anshul563/edvance-project/services/live-streaming-service/internal/repository"
 	"github.com/Anshul563/edvance-project/services/live-streaming-service/internal/router"
 	"github.com/Anshul563/edvance-project/services/live-streaming-service/internal/server"
 	"github.com/Anshul563/edvance-project/services/live-streaming-service/internal/service"
@@ -32,15 +34,48 @@ func main() {
 		os.Exit(1)
 	}
 
-	streamService := service.NewLiveStreamService(nil, nil)
+	startupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	db, err := repository.NewPostgres(startupCtx, cfg.Database.URL)
+	if err != nil {
+		slog.Error("failed to connect to postgres", "error", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	mediaClient := mediamtx.NewClient(cfg.Media.APIURL, cfg.Media.Timeout)
+
+	streamService := service.NewLiveStreamService(
+		repository.NewStreamRepository(db),
+		mediaClient,
+		service.PublicAddresses{
+			RTMPURL:    cfg.Public.RTMPURL,
+			HLSBaseURL: cfg.Public.HLSBaseURL,
+			PathPrefix: cfg.Public.StreamKeyID,
+		},
+		logger,
+	)
+
+	// Background reconciliation covers missed media-server hook events.
+	reconcilerCtx, reconcilerCancel := context.WithCancel(context.Background())
+	defer reconcilerCancel()
+	go streamService.StartReconciler(reconcilerCtx, 15*time.Second)
+
 	srv := server.New(cfg, router.Handlers{
-		Health: handler.NewHealthHandler(),
+		Health: handler.NewHealthHandler(db),
 		Stream: handler.NewStreamHandler(streamService),
+		Hook:   handler.NewHookHandler(streamService),
 	})
 
 	serverErr := make(chan error, 1)
 	go func() {
-		slog.Info("live-streaming service starting", "port", cfg.Port, "provider", cfg.Provider.Kind)
+		slog.Info("live-streaming service starting",
+			"port", cfg.Port,
+			"mediamtx_api", cfg.Media.APIURL,
+			"rtmp_public_url", cfg.Public.RTMPURL,
+			"hls_public_base_url", cfg.Public.HLSBaseURL,
+		)
 		serverErr <- srv.Start()
 	}()
 
@@ -53,9 +88,11 @@ func main() {
 			slog.Error("server stopped", "error", err)
 			os.Exit(1)
 		}
-	case signal := <-sig:
-		slog.Info("shutdown signal received", "signal", signal)
+	case received := <-sig:
+		slog.Info("shutdown signal received", "signal", received)
 	}
+
+	reconcilerCancel()
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()

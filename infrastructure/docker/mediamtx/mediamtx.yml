@@ -1,0 +1,71 @@
+# MediaMTX configuration for the Edvance live-streaming MVP.
+#
+# Flow: OBS publishes to rtmp://<host>:1935/live with stream key
+# "<path>?token=<secret>". MediaMTX asks live-streaming-service to
+# authorize every publish attempt (authMethod: http); on connect/disconnect
+# it POSTs lifecycle hooks. Students read HLS on :8888 without auth.
+
+logLevel: info
+logDestinations: [stdout]
+
+# Control API for status reconciliation and publisher kick. Only reachable
+# on the docker network — the port is never published to the host.
+api: true
+apiAddress: :9997
+
+# RTMP ingest (OBS).
+rtmp: true
+rtmpAddress: :1935
+
+# HLS playback (student app, browsers). Tuned for stability over minimum
+# latency: 12 × 2s segments ≈ 24s of buffer, so brief encoder/network
+# hiccups don't stall the player at the live edge. LL-HLS parts keep
+# latency around ~4–6s.
+hls: true
+hlsAddress: :8888
+hlsVariant: lowLatency
+hlsSegmentCount: 12
+hlsSegmentDuration: 2s
+hlsPartDuration: 500ms
+hlsSegmentMaxSize: 50MB
+hlsAllowOrigin: "*"
+
+# Publish attempts are authorized by the Go service. The stream key token
+# arrives in the `token` field (extracted from the OBS stream key query
+# parameter). Playback/read/api never hit the auth endpoint.
+#
+# MediaMTX's native HTTP-auth POST cannot carry an Authorization header, so
+# the shared secret travels in this URL's query string (?shared=...). The
+# service compares it constant-time against INTERNAL_SERVICE_TOKEN.
+# docker-compose also sets MTX_AUTHHTTPADDRESS with the secret interpolated
+# at compose time (authoritative over this file).
+authMethod: http
+authHTTPAddress: http://live-streaming-service:8096/internal/hooks/authorize?shared=${MEDIAMTX_HOOK_TOKEN}
+authHTTPExclude:
+  - action: api
+  - action: metrics
+  - action: pprof
+  - action: read
+  - action: playback
+
+# Lifecycle callbacks. MEDIAMTX_HOOK_TOKEN is the container env var set by
+# docker-compose (same value as the service's INTERNAL_SERVICE_TOKEN).
+pathDefaults:
+  runOnOnline: >
+    curl -s -m 5 -X POST
+    -H "Authorization: Bearer ${MEDIAMTX_HOOK_TOKEN}"
+    -H "Content-Type: application/json"
+    -d '{"action":"publish","path":"${MTX_PATH}"}'
+    http://live-streaming-service:8096/internal/hooks/publish
+  runOnOffline: >
+    curl -s -m 5 -X POST
+    -H "Authorization: Bearer ${MEDIAMTX_HOOK_TOKEN}"
+    -H "Content-Type: application/json"
+    -d '{"action":"done","path":"${MTX_PATH}"}'
+    http://live-streaming-service:8096/internal/hooks/done
+
+# No static paths: every path is publisher-driven and gated by the HTTP
+# authorization above. all_others accepts any path name; the HTTP
+# authorizer decides per-publish (rejects unknown paths / bad tokens).
+paths:
+  all_others: {}

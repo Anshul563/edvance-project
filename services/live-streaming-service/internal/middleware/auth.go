@@ -2,85 +2,94 @@ package middleware
 
 import (
 	"context"
-	"errors"
+	"encoding/json"
 	"net/http"
 	"strings"
-	"time"
 
-	jwt "github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
+
+	"github.com/Anshul563/edvance-project/services/live-streaming-service/internal/token"
 )
 
+type contextKey string
+
+const userIDContextKey contextKey = "user_id"
+
+// AuthConfig carries what the middleware needs to validate access tokens.
+// The secret must match auth-service; validation is local, no network
+// call to auth-service happens per request.
 type AuthConfig struct {
 	AccessSecret string
 	Issuer       string
 	Audience     string
 }
 
-type contextKey string
-
-const userIDContextKey contextKey = "user_id"
-
+// Authenticate validates `Authorization: Bearer <access_token>` and stores
+// the user ID (JWT sub) in the request context. Client-controlled headers
+// such as X-User-ID are never trusted for ownership.
 func Authenticate(cfg AuthConfig) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			authHeader := r.Header.Get("Authorization")
-			if authHeader == "" {
-				http.Error(w, "missing authorization header", http.StatusUnauthorized)
+			userID, ok := authenticateRequest(r, cfg)
+			if !ok {
+				writeUnauthorized(w)
 				return
 			}
 
-			parts := strings.Split(authHeader, " ")
-			if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
-				http.Error(w, "invalid authorization header", http.StatusUnauthorized)
-				return
-			}
+			ctx := context.WithValue(r.Context(), userIDContextKey, userID)
 
-			tokenString := parts[1]
-			claims := jwt.RegisteredClaims{}
-			token, err := jwt.ParseWithClaims(tokenString, &claims, func(token *jwt.Token) (interface{}, error) {
-				return []byte(cfg.AccessSecret), nil
-			})
-			if err != nil || !token.Valid {
-				http.Error(w, "invalid access token", http.StatusUnauthorized)
-				return
-			}
-			if time.Until(claims.ExpiresAt.Time) <= 0 {
-				http.Error(w, "access token expired", http.StatusUnauthorized)
-				return
-			}
-			if cfg.Issuer != "" && claims.Issuer != cfg.Issuer {
-				http.Error(w, "invalid token issuer", http.StatusUnauthorized)
-				return
-			}
-			if cfg.Audience != "" && !containsAudience(claims.Audience, cfg.Audience) {
-				http.Error(w, "invalid token audience", http.StatusUnauthorized)
-				return
-			}
-
-			if claims.Subject == "" {
-				http.Error(w, "missing user identity", http.StatusUnauthorized)
-				return
-			}
-
-			r = r.WithContext(context.WithValue(r.Context(), userIDContextKey, claims.Subject))
-			next.ServeHTTP(w, r)
+			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }
 
-func UserIDFromContext(ctx context.Context) (string, error) {
-	userID, ok := ctx.Value(userIDContextKey).(string)
-	if !ok || userID == "" {
-		return "", errors.New("user id missing from context")
+func authenticateRequest(
+	r *http.Request,
+	cfg AuthConfig,
+) (uuid.UUID, bool) {
+	header := r.Header.Get("Authorization")
+
+	scheme, value, found := strings.Cut(header, " ")
+	if !found ||
+		!strings.EqualFold(strings.TrimSpace(scheme), "bearer") ||
+		strings.TrimSpace(value) == "" {
+		return uuid.Nil, false
 	}
-	return userID, nil
+
+	claims, err := token.ValidateAccessToken(
+		strings.TrimSpace(value),
+		cfg.AccessSecret,
+		cfg.Issuer,
+		cfg.Audience,
+	)
+	if err != nil {
+		return uuid.Nil, false
+	}
+
+	userID, err := uuid.Parse(claims.Subject)
+	if err != nil {
+		return uuid.Nil, false
+	}
+
+	return userID, true
 }
 
-func containsAudience(audiences []string, target string) bool {
-	for _, audience := range audiences {
-		if audience == target {
-			return true
-		}
+// GetUserID returns the authenticated user ID stored by Authenticate.
+func GetUserID(ctx context.Context) (uuid.UUID, bool) {
+	userID, ok := ctx.Value(userIDContextKey).(uuid.UUID)
+
+	if !ok || userID == uuid.Nil {
+		return uuid.Nil, false
 	}
-	return false
+
+	return userID, true
+}
+
+func writeUnauthorized(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusUnauthorized)
+
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"error": "unauthorized",
+	})
 }

@@ -21,6 +21,7 @@ import {
   SidebarLeftIcon,
   Users,
   Add02Icon,
+  LiveStreaming02Icon,
 } from "@hugeicons/core-free-icons"
 import { cn } from "@/lib/utils"
 import { initialsOf, useSessionUser } from "@/hooks/use-session-user"
@@ -36,6 +37,7 @@ export const navItems: NavItem[] = [
   { href: "/creator", label: "Overview", icon: LayoutIcon, exact: true },
   { href: "/creator/courses", label: "My Courses", icon: Book01Icon },
   { href: "/creator/create", label: "Create Course", icon: Add02Icon },
+  { href: "/creator/live", label: "Live Studio", icon: LiveStreaming02Icon },
   { href: "/creator/media", label: "Media Library", icon: Image01Icon },
   { href: "/creator/students", label: "Students", icon: Users },
   { href: "/creator/analytics", label: "Analytics", icon: TrendingUp },

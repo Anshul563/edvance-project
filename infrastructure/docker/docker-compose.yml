@@ -369,5 +369,70 @@ services:
       retries: 12
       start_period: 10s
 
+  live-streaming-service:
+    build:
+      context: ../../services/live-streaming-service
+      dockerfile: Dockerfile
+    image: edvance/live-streaming-service:local
+    container_name: edvance-live-streaming-service
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      LIVE_STREAMING_SERVICE_PORT: "8096"
+      DATABASE_URL: ${LIVE_DATABASE_URL:-postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/edvance_live?sslmode=disable}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev-local-jwt-secret}
+      JWT_ISSUER: ${JWT_ISSUER:-edvance-auth}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-edvance-api}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-local-service-token}
+      MEDIAMTX_API_URL: http://mediamtx:9997
+      # These are handed to OBS and to student phones: override them in
+      # .env with your machine's LAN IP for device testing.
+      RTMP_PUBLIC_URL: ${RTMP_PUBLIC_URL:-rtmp://localhost:1935}
+      HLS_PUBLIC_BASE_URL: ${HLS_PUBLIC_BASE_URL:-http://localhost:8888}
+    ports:
+      - "8096:8096"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8096/health >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  mediamtx:
+    build:
+      context: ../../infrastructure/docker/mediamtx
+      dockerfile: Dockerfile
+    image: edvance/mediamtx:local
+    container_name: edvance-mediamtx
+    restart: unless-stopped
+    environment:
+      # Shared with live-streaming-service INTERNAL_SERVICE_TOKEN; used to
+      # authenticate lifecycle hook callbacks.
+      MEDIAMTX_HOOK_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-local-service-token}
+      # MediaMTX's native HTTP-auth POST cannot send an Authorization
+      # header, so the internal token is carried as ?shared= on the
+      # authorize URL. Compose interpolates it here (authoritative over
+      # the ${MEDIAMTX_HOOK_TOKEN} placeholder in mediamtx.yml).
+      MTX_AUTHHTTPADDRESS: http://live-streaming-service:8096/internal/hooks/authorize?shared=${INTERNAL_SERVICE_TOKEN:-dev-local-service-token}
+    volumes:
+      - ../../infrastructure/docker/mediamtx/mediamtx.yml:/etc/mediamtx/mediamtx.yml:ro
+    ports:
+      # RTMP ingest (OBS) and HLS playback (students). The control API
+      # on 9997 is intentionally NOT published.
+      - "${RTMP_PORT:-1935}:1935"
+      - "${HLS_PORT:-8888}:8888"
+    depends_on:
+      live-streaming-service:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9997/v3/paths/list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
 volumes:
   postgres_data:

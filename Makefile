@@ -1,4 +1,4 @@
-.PHONY: help test build lint check infra-up app-up purchase-up infra-down infra-logs infra-ps infra-config migrate
+.PHONY: help test build lint check infra-up app-up purchase-up live-up infra-down infra-logs infra-ps infra-config migrate
 
 COMPOSE_FILE := infrastructure/docker/docker-compose.yml
 ENV_FILE := .env
@@ -8,6 +8,7 @@ help:
 	@printf "  make infra-up      Start PostgreSQL + Redis only.\n"
 	@printf "  make app-up        Start the supported default application services.\n"
 	@printf "  make purchase-up   Start the course-to-learning purchase services (requires Razorpay test keys).\n"
+	@printf "  make live-up       Start the live-streaming stack (gateway, auth, live service, MediaMTX).\n"
 	@printf "  make infra-down    Stop the local stack without removing persistent volumes.\n"
 	@printf "  make infra-logs    Follow Docker Compose logs.\n"
 	@printf "  make infra-ps      Show running containers.\n"
@@ -19,7 +20,7 @@ help:
 	@printf "  make check         Alias for test + build.\n"
 
 test:
-	@go test ./services/admin-api/... ./services/api-gateway/... ./services/analytics-service/... ./services/auth-service/... ./services/course-service/... ./services/learning-service/... ./services/commerce-service/... ./services/payment-service/...
+	@go test ./services/admin-api/... ./services/api-gateway/... ./services/analytics-service/... ./services/auth-service/... ./services/course-service/... ./services/learning-service/... ./services/commerce-service/... ./services/payment-service/... ./services/live-streaming-service/...
 	@if [ -x services/moderation-service/.venv/bin/python ]; then cd services/moderation-service && ./.venv/bin/python -m pytest -q tests; else echo "moderation-service venv missing; skipping"; fi
 	@if [ -x services/recommendation-service/.venv/bin/python ]; then cd services/recommendation-service && ./.venv/bin/python -m pytest -q tests; else echo "recommendation-service venv missing; skipping"; fi
 
@@ -32,7 +33,8 @@ build:
 	@cd services/learning-service && go build ./...
 	@cd services/commerce-service && go build ./...
 	@cd services/payment-service && go build ./...
-	@if [ -f $(ENV_FILE) ]; then docker compose --env-file $(ENV_FILE) -f $(COMPOSE_FILE) build api-gateway admin-api auth-service analytics-service recommendation-service moderation-service course-service learning-service commerce-service payment-service; else echo "$(ENV_FILE) missing; create it from .env.example first"; fi
+	@cd services/live-streaming-service && go build ./...
+	@if [ -f $(ENV_FILE) ]; then docker compose --env-file $(ENV_FILE) -f $(COMPOSE_FILE) build api-gateway admin-api auth-service analytics-service recommendation-service moderation-service course-service learning-service commerce-service payment-service live-streaming-service mediamtx; else echo "$(ENV_FILE) missing; create it from .env.example first"; fi
 
 lint:
 	@command -v gofmt >/dev/null && gofmt -l services/admin-api services/api-gateway services/analytics-service || true
@@ -56,6 +58,9 @@ purchase-up:
 	@if [ ! -f $(ENV_FILE) ]; then echo "Copy .env.example to .env before starting the stack."; exit 1; fi
 	@docker compose --env-file $(ENV_FILE) --profile purchase --profile payment -f $(COMPOSE_FILE) up -d postgres redis api-gateway auth-service course-service learning-service commerce-service payment-service
 
+live-up: infra-up
+	@docker compose --env-file $(ENV_FILE) -f $(COMPOSE_FILE) up -d --build api-gateway auth-service live-streaming-service mediamtx
+
 infra-down:
 	@if [ ! -f $(ENV_FILE) ]; then echo "Copy .env.example to .env before stopping the stack."; exit 1; fi
 	@docker compose --env-file $(ENV_FILE) -f $(COMPOSE_FILE) down
@@ -76,7 +81,7 @@ migrate:
 	@if [ ! -f $(ENV_FILE) ]; then echo "Copy .env.example to .env before applying migrations."; exit 1; fi
 	@set -a; . ./.env; set +a; docker compose --env-file $(ENV_FILE) -f $(COMPOSE_FILE) up -d --wait postgres
 	@set -a; . ./.env; set +a; docker compose --env-file $(ENV_FILE) -f $(COMPOSE_FILE) exec -T postgres psql -U "$${POSTGRES_USER:-postgres}" -d "$${POSTGRES_DB:-postgres}" -v ON_ERROR_STOP=1 < infrastructure/postgres/init/01-create-databases.sql
-	@set -e; set -a; . ./.env; set +a; for entry in "auth-service edvance_auth" "analytics-service edvance_analytics" "course-service edvance_course" "learning-service edvance_learning" "commerce-service edvance_commerce" "payment-service edvance_payment"; do \
+	@set -e; set -a; . ./.env; set +a; for entry in "auth-service edvance_auth" "analytics-service edvance_analytics" "course-service edvance_course" "learning-service edvance_learning" "commerce-service edvance_commerce" "payment-service edvance_payment" "moderation-service edvance_moderation" "recommendation-service edvance_recommendation" "live-streaming-service edvance_live"; do \
 		set -- $$entry; service=$$1; database=$$2; \
 		for migration in services/$$service/migrations/*.sql; do \
 			docker compose --env-file $(ENV_FILE) -f $(COMPOSE_FILE) exec -T postgres psql -U "$${POSTGRES_USER:-postgres}" -d "$$database" -v ON_ERROR_STOP=1 < "$$migration"; \

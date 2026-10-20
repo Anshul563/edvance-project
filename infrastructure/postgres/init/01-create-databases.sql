@@ -24,3 +24,6 @@ WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'edvance_commerce')\ge
 
 SELECT 'CREATE DATABASE edvance_payment'
 WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'edvance_payment')\gexec
+
+SELECT 'CREATE DATABASE edvance_live'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'edvance_live')\gexec

@@ -103,7 +103,7 @@ export default function OverviewPage() {
             Create Course
           </Link>
           <Link
-            href="/creator/analytics"
+            href="/creator/live"
             className="inline-flex items-center gap-1.5 rounded-none border border-border px-4 py-2 text-xs font-medium transition-colors hover:bg-muted sm:text-sm"
           >
             <HugeiconsIcon

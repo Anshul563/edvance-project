@@ -23,7 +23,7 @@ This inventory reflects the services that currently exist in the repository and 
 | Recommendation Service | Python | `services/recommendation-service` | env `RECOMMENDATION_SERVICE_PORT`, default `8093` | Personalized ranking and recommendation events | Implemented and tested |
 | Moderation Service | Python | `services/moderation-service` | env `MODERATION_SERVICE_PORT`, default `8094` | Text and content moderation flows | Implemented and tested |
 | AI Service | Python | `services/ai-service` | env `AI_SERVICE_PORT`, default `8095` | Tutor/quiz/summary provider calls | Present, backed by mock or configured provider |
-| Live Streaming Service | Go | `services/live-streaming-service` | default `8096` | Live session and stream orchestration | Present |
+| Live Streaming Service | Go | `services/live-streaming-service` | default `8096` | Live session and stream orchestration (RTMP/HLS via MediaMTX) | Active; see `docs/architecture/live-streaming-service.md` |
 | Analytics Service | Go | `services/analytics-service` | default `8097` | Event ingestion and overview views | Present and tested |
 | Analytics Processor | Python | `services/analytics-processor` | not yet wired into the root config | Background event processing | Present but not fully integrated into root orchestration |
 

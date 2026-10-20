@@ -17,14 +17,14 @@ type Server struct {
 func New(cfg config.Config, handlers router.Handlers) *Server {
 	httpServer := &http.Server{
 		Addr: fmt.Sprintf(":%d", cfg.Port),
-		Handler: router.New(
-			handlers,
-			router.NewAuthMiddleware(
+		Handler: router.New(handlers, router.Options{
+			Auth: router.NewAuthMiddleware(
 				cfg.JWT.AccessSecret,
 				cfg.JWT.Issuer,
 				cfg.JWT.Audience,
 			),
-		),
+			InternalToken: cfg.InternalToken,
+		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,

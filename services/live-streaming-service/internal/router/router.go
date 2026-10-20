@@ -12,34 +12,72 @@ import (
 type Handlers struct {
 	Health *handler.HealthHandler
 	Stream *handler.StreamHandler
+	Hook   *handler.HookHandler
 }
 
-func New(handlers Handlers, authMiddleware func(http.Handler) http.Handler) http.Handler {
+type Options struct {
+	Auth          func(http.Handler) http.Handler
+	InternalToken string
+}
+
+// New builds the service router.
+//
+// Route mounts:
+//   - Health at the root.
+//   - Public stream routes at /streams (the api-gateway strips
+//     /api/v1/live and /api/v1/streams before forwarding, so both
+//     gateway prefixes arrive here), and again under /api/v1/live for
+//     direct callers using the full path.
+//   - Media-server hooks at /internal/hooks only. They are never mounted
+//     under a gateway-forwarded prefix and additionally reject requests
+//     carrying the gateway's X-Edvance-Gateway header, so they stay
+//     unreachable through the public gateway.
+func New(handlers Handlers, options Options) http.Handler {
 	r := chi.NewRouter()
+
+	r.Use(middleware.CORS)
 
 	r.Get("/health", handlers.Health.Health)
 	r.Get("/ready", handlers.Health.Ready)
 
-	registerStreamRoutes(r, handlers, authMiddleware)
+	routeMounts := []string{"/", "/api/v1/live"}
+	for _, mount := range routeMounts {
+		if mount == "/" {
+			registerStreamRoutes(r, handlers.Stream, options.Auth)
+			continue
+		}
+		r.Route(mount, func(r chi.Router) {
+			registerStreamRoutes(r, handlers.Stream, options.Auth)
+		})
+	}
 
-	r.Route("/live", func(r chi.Router) {
-		registerStreamRoutes(r, handlers, authMiddleware)
-	})
-	r.Route("/streams", func(r chi.Router) {
-		registerStreamRoutes(r, handlers, authMiddleware)
+	r.Route("/internal", func(r chi.Router) {
+		r.Use(middleware.InternalOnly(options.InternalToken))
+
+		r.Post("/hooks/authorize", handlers.Hook.Authorize)
+		r.Post("/hooks/publish", handlers.Hook.PublishOnline)
+		r.Post("/hooks/done", handlers.Hook.PublishOffline)
 	})
 
 	return r
 }
 
-func registerStreamRoutes(r chi.Router, handlers Handlers, authMiddleware func(http.Handler) http.Handler) {
+func registerStreamRoutes(r chi.Router, streams *handler.StreamHandler, auth func(http.Handler) http.Handler) {
+	// Student-facing discovery and playback: no authentication, no
+	// publisher secrets in any response.
+	r.Get("/streams/active", streams.ListActive)
+	r.Get("/streams/{streamID}/playback", streams.Playback)
+
+	// Creator-facing operations: JWT required, ownership enforced in
+	// the service layer.
 	r.Group(func(r chi.Router) {
-		r.Use(authMiddleware)
-		r.Post("/sessions", handlers.Stream.Create)
-		r.Get("/sessions", handlers.Stream.List)
-		r.Get("/sessions/{sessionID}", handlers.Stream.Get)
-		r.Post("/sessions/{sessionID}/start", handlers.Stream.Start)
-		r.Post("/sessions/{sessionID}/stop", handlers.Stream.Stop)
+		r.Use(auth)
+
+		r.Post("/streams", streams.Create)
+		r.Get("/streams/mine", streams.ListMine)
+		r.Get("/streams/{streamID}", streams.Get)
+		r.Post("/streams/{streamID}/end", streams.End)
+		r.Post("/streams/{streamID}/regenerate-key", streams.RegenerateKey)
 	})
 }
 
