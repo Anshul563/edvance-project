@@ -20,6 +20,7 @@ import (
 	"github.com/Anshul563/edvance-project/services/content-service/internal/router"
 	"github.com/Anshul563/edvance-project/services/content-service/internal/server"
 	"github.com/Anshul563/edvance-project/services/content-service/internal/service"
+	"github.com/Anshul563/edvance-project/services/content-service/internal/videoclient"
 )
 
 func main() {
@@ -94,9 +95,16 @@ func main() {
 		)
 	}
 
+	playback := videoclient.New(
+		cfg.VideoService.URL,
+		cfg.VideoService.InternalToken,
+	)
+
 	videoService := service.NewVideoService(
 		repository.NewVideoRepository(db),
 		creators,
+		repository.NewCategoryRepository(db),
+		playback,
 		publisher,
 		limits,
 	)

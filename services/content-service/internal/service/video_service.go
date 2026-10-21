@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -34,6 +35,19 @@ type VideoStore interface {
 		status model.VideoStatus,
 		durationSeconds *int,
 		mediaAssetID *uuid.UUID,
+		thumbnailURL *string,
+		errorCode *string,
+		errorMessage *string,
+	) (*model.Video, error)
+	FindByMediaAssetID(
+		ctx context.Context,
+		mediaAssetID uuid.UUID,
+	) ([]*model.Video, error)
+	SetModeration(
+		ctx context.Context,
+		id uuid.UUID,
+		status model.ModerationStatus,
+		reason *string,
 	) (*model.Video, error)
 	IncrementCounters(
 		ctx context.Context,
@@ -55,20 +69,62 @@ type VideoStore interface {
 	) (map[uuid.UUID][]model.Tag, error)
 }
 
+// CategoryResolver resolves a category slug to its stored row. Only
+// read access is needed: the taxonomy is admin-owned.
+type CategoryResolver interface {
+	FindBySlug(ctx context.Context, slug string) (*model.Category, error)
+}
+
+// PlaybackClient fetches playback facts (manifest URL, renditions,
+// captions, thumbnail) for a processed media asset from video-service.
+// It is internal-only and carries its own service token.
+type PlaybackClient interface {
+	Playback(
+		ctx context.Context,
+		mediaAssetID uuid.UUID,
+	) (*Playback, error)
+}
+
+// Playback is the safe playback projection returned to players. It
+// deliberately contains no storage keys or original filenames.
+type Playback struct {
+	MediaAssetID    string            `json:"mediaAssetId"`
+	Status          string            `json:"status"`
+	DurationSeconds *int64            `json:"durationSeconds,omitempty"`
+	Width           *int              `json:"width,omitempty"`
+	Height          *int              `json:"height,omitempty"`
+	PlaybackURL     *string           `json:"playbackUrl,omitempty"`
+	ThumbnailURL    *string           `json:"thumbnailUrl,omitempty"`
+	Captions        []PlaybackCaption `json:"captions"`
+}
+
+// PlaybackCaption is one subtitle track.
+type PlaybackCaption struct {
+	Language  string  `json:"language"`
+	Label     string  `json:"label"`
+	Format    string  `json:"format"`
+	URL       *string `json:"url,omitempty"`
+	IsDefault bool    `json:"isDefault"`
+}
+
 // VideoService owns the video metadata lifecycle: creation, owner
-// edits, publishing, media-status callbacks from the video service, and
-// counter maintenance. It stores references to media — never media
-// itself.
+// edits, publishing, media-status callbacks from the video service,
+// moderation, playback gating, and counter maintenance. It stores
+// references to media — never media itself.
 type VideoService struct {
-	videos   VideoStore
-	creators CreatorResolver
-	notifier notifier.Notifier
-	limits   Limits
+	videos     VideoStore
+	creators   CreatorResolver
+	categories CategoryResolver
+	playback   PlaybackClient
+	notifier   notifier.Notifier
+	limits     Limits
 }
 
 func NewVideoService(
 	videos VideoStore,
 	creators CreatorResolver,
+	categories CategoryResolver,
+	playback PlaybackClient,
 	publisher notifier.Notifier,
 	limits Limits,
 ) *VideoService {
@@ -77,10 +133,12 @@ func NewVideoService(
 	}
 
 	return &VideoService{
-		videos:   videos,
-		creators: creators,
-		notifier: publisher,
-		limits:   limits,
+		videos:     videos,
+		creators:   creators,
+		categories: categories,
+		playback:   playback,
+		notifier:   publisher,
+		limits:     limits,
 	}
 }
 
@@ -91,17 +149,22 @@ type CreateVideoInput struct {
 	Title        string
 	Description  *string
 	Visibility   string
+	Language     string
+	CategorySlug *string
 	MediaAssetID *uuid.UUID
 	ThumbnailURL *string
 	Tags         []string
 }
 
 // UpdateVideoInput mirrors create but every field is optional. A nil
-// pointer means "leave unchanged".
+// pointer means "leave unchanged"; an empty CategorySlug clears the
+// category.
 type UpdateVideoInput struct {
 	Title        *string
 	Description  *string
 	Visibility   *string
+	Language     *string
+	CategorySlug *string
 	ThumbnailURL *string
 	MediaAssetID *uuid.UUID
 	Tags         *[]string
@@ -109,11 +172,16 @@ type UpdateVideoInput struct {
 
 // ListVideosParams is the parsed query string for video listings.
 type ListVideosParams struct {
-	Page       int
-	Limit      int
-	CreatorID  *uuid.UUID
-	Status     *model.VideoStatus
-	Visibility *model.VideoVisibility
+	Page         int
+	Limit        int
+	CreatorID    *uuid.UUID
+	Status       *model.VideoStatus
+	Visibility   *model.VideoVisibility
+	CategorySlug *string
+	Language     *string
+	TagSlug      *string
+	Query        *string
+	Sort         string
 }
 
 // Create registers a video in draft state under the caller's creator.
@@ -152,14 +220,34 @@ func (s *VideoService) Create(
 		return nil, err
 	}
 
+	language, err := validateLanguage(input.Language)
+	if err != nil {
+		return nil, err
+	}
+
+	categoryID, err := s.resolveCategory(ctx, input.CategorySlug)
+	if err != nil {
+		return nil, err
+	}
+
+	status := model.VideoStatusDraft
+	if input.MediaAssetID != nil {
+		// The creator created the row together with a known asset;
+		// processing state is still driven only by pipeline callbacks.
+		status = model.VideoStatusUploadPending
+	}
+
 	video := &model.Video{
-		CreatorID:    creatorID,
-		Title:        title,
-		Description:  description,
-		Visibility:   visibility,
-		Status:       model.VideoStatusDraft,
-		MediaAssetID: input.MediaAssetID,
-		ThumbnailURL: thumbnailURL,
+		CreatorID:        creatorID,
+		Title:            title,
+		Description:      description,
+		Visibility:       visibility,
+		Language:         language,
+		CategoryID:       categoryID,
+		Status:           status,
+		ModerationStatus: model.ModerationApproved,
+		MediaAssetID:     input.MediaAssetID,
+		ThumbnailURL:     thumbnailURL,
 	}
 
 	if err := s.createWithUniqueSlug(ctx, video, input.Tags); err != nil {
@@ -243,6 +331,24 @@ func (s *VideoService) Update(
 		}
 
 		video.Visibility = visibility
+	}
+
+	if input.Language != nil {
+		language, err := validateLanguage(*input.Language)
+		if err != nil {
+			return nil, err
+		}
+
+		video.Language = language
+	}
+
+	if input.CategorySlug != nil {
+		categoryID, err := s.resolveCategory(ctx, input.CategorySlug)
+		if err != nil {
+			return nil, err
+		}
+
+		video.CategoryID = categoryID
 	}
 
 	if input.ThumbnailURL != nil {
@@ -332,6 +438,17 @@ func (s *VideoService) Publish(
 		reasons = append(reasons, "media asset is missing")
 	}
 
+	if !video.ModerationStatus.PubliclyAllowed() {
+		reasons = append(
+			reasons,
+			fmt.Sprintf(
+				"moderation status is %q, only %q videos can publish",
+				video.ModerationStatus,
+				model.ModerationApproved,
+			),
+		)
+	}
+
 	if utf8.RuneCountInString(video.Title) < 3 {
 		reasons = append(reasons, "title is missing")
 	}
@@ -348,7 +465,7 @@ func (s *VideoService) Publish(
 	if err != nil {
 		if mapRepoError(err) == ErrNotPublishable {
 			return nil, fmt.Errorf(
-				"%w: video is no longer %q",
+				"%w: video is no longer %q or is no longer approved",
 				ErrNotPublishable,
 				model.VideoStatusReady,
 			)
@@ -398,11 +515,21 @@ func (s *VideoService) ListVideos(
 ) (Page[*model.Video], error) {
 	page, limit := NormalizePagination(params.Page, params.Limit, s.limits)
 
+	sort, err := validateSort(params.Sort)
+	if err != nil {
+		return Page[*model.Video]{}, err
+	}
+
 	filter := repository.VideoFilter{
 		CreatorID:       params.CreatorID,
 		Status:          params.Status,
 		Visibility:      params.Visibility,
 		ViewerCreatorID: viewerOrNil(ctx, s.creators, actor),
+		CategorySlug:    normalizeSlugFilter(params.CategorySlug),
+		Language:        normalizeLanguageFilter(params.Language),
+		TagSlug:         normalizeSlugFilter(params.TagSlug),
+		Query:           normalizeQueryFilter(params.Query),
+		Sort:            sort,
 	}
 
 	total, err := s.videos.Count(ctx, filter)
@@ -422,55 +549,47 @@ func (s *VideoService) ListVideos(
 	return newPage(videos, page, limit, total), nil
 }
 
-// SetMediaStatus records pipeline progress reported by the video/media
-// service over the internal API. Only processing and ready are
+// MediaStatusUpdate is the pipeline's report about one media asset.
+type MediaStatusUpdate struct {
+	Status          string
+	DurationSeconds *int
+	MediaAssetID    *uuid.UUID
+	ThumbnailURL    *string
+	ErrorCode       *string
+	ErrorMessage    *string
+}
+
+// SetMediaStatus records pipeline progress reported by the
+// video-service over the internal API. Only real pipeline states are
 // accepted; everything else is invalid input.
 func (s *VideoService) SetMediaStatus(
 	ctx context.Context,
 	id uuid.UUID,
-	status string,
-	durationSeconds *int,
-	mediaAssetID *uuid.UUID,
+	update MediaStatusUpdate,
 ) (*model.Video, error) {
-	var parsed model.VideoStatus
-
-	switch status {
-	case string(model.VideoStatusProcessing):
-		parsed = model.VideoStatusProcessing
-
-	case string(model.VideoStatusReady):
-		parsed = model.VideoStatusReady
-
-	default:
-		return nil, fmt.Errorf(
-			"%w: unsupported status %q",
-			ErrInvalidInput,
-			status,
-		)
+	parsed, err := parseMediaStatus(update.Status)
+	if err != nil {
+		return nil, err
 	}
 
-	if durationSeconds != nil && *durationSeconds < 0 {
-		return nil, fmt.Errorf("%w: duration must be >= 0", ErrInvalidInput)
+	if err := validateMediaStatusUpdate(parsed, update); err != nil {
+		return nil, err
 	}
 
-	// "ready" is the publishable state, and publishing also requires
-	// the media asset. Without this gate the pipeline could report a
-	// ready video with no asset, leaving it permanently un-publishable
-	// with no way to tell which callback was incomplete.
-	if parsed == model.VideoStatusReady && mediaAssetID == nil {
-		return nil, fmt.Errorf(
-			"%w: mediaAssetId is required when status is %q",
-			ErrInvalidInput,
-			string(model.VideoStatusReady),
-		)
+	thumbnailURL, err := normalizeOptionalText(update.ThumbnailURL, 1000)
+	if err != nil {
+		return nil, err
 	}
 
 	video, err := s.videos.UpdateMediaStatus(
 		ctx,
 		id,
 		parsed,
-		durationSeconds,
-		mediaAssetID,
+		update.DurationSeconds,
+		update.MediaAssetID,
+		thumbnailURL,
+		update.ErrorCode,
+		update.ErrorMessage,
 	)
 	if err != nil {
 		if mapRepoError(err) == ErrInvalidStatus {
@@ -484,6 +603,253 @@ func (s *VideoService) SetMediaStatus(
 	}
 
 	return video, nil
+}
+
+// SetMediaStatusByMediaAsset applies a pipeline report keyed by media
+// asset ID. content-service stores that reference and does not know
+// video-service's job IDs, so this is the callback shape the two
+// services actually share.
+//
+// Published/archived rows are skipped instead of failing: a late or
+// duplicated callback must never take down (or resurrect) live content.
+func (s *VideoService) SetMediaStatusByMediaAsset(
+	ctx context.Context,
+	mediaAssetID uuid.UUID,
+	update MediaStatusUpdate,
+) ([]*model.Video, error) {
+	parsed, err := parseMediaStatus(update.Status)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := validateMediaStatusUpdate(parsed, update); err != nil {
+		return nil, err
+	}
+
+	thumbnailURL, err := normalizeOptionalText(update.ThumbnailURL, 1000)
+	if err != nil {
+		return nil, err
+	}
+
+	videos, err := s.videos.FindByMediaAssetID(ctx, mediaAssetID)
+	if err != nil {
+		return nil, mapRepoError(err)
+	}
+
+	if len(videos) == 0 {
+		return nil, ErrNotFound
+	}
+
+	updated := make([]*model.Video, 0, len(videos))
+
+	for _, video := range videos {
+		if video.Status == model.VideoStatusPublished ||
+			video.Status == model.VideoStatusArchived {
+			continue
+		}
+
+		next, err := s.videos.UpdateMediaStatus(
+			ctx,
+			video.ID,
+			parsed,
+			update.DurationSeconds,
+			&mediaAssetID,
+			thumbnailURL,
+			update.ErrorCode,
+			update.ErrorMessage,
+		)
+		if err != nil {
+			if mapRepoError(err) == ErrInvalidStatus {
+				continue
+			}
+
+			return nil, mapRepoError(err)
+		}
+
+		updated = append(updated, next)
+	}
+
+	return updated, nil
+}
+
+// SetModeration applies a review decision. Rejected/held content is
+// withdrawn from the public surface atomically by the repository, so it
+// can never remain reachable between two calls.
+func (s *VideoService) SetModeration(
+	ctx context.Context,
+	id uuid.UUID,
+	status string,
+	reason *string,
+) (*model.Video, error) {
+	parsed := model.ModerationStatus(strings.TrimSpace(status))
+	if !parsed.Valid() {
+		return nil, fmt.Errorf(
+			"%w: moderation status must be approved, pending_review, rejected or held",
+			ErrInvalidInput,
+		)
+	}
+
+	normalizedReason, err := normalizeOptionalText(reason, 1000)
+	if err != nil {
+		return nil, err
+	}
+
+	video, err := s.videos.SetModeration(ctx, id, parsed, normalizedReason)
+	if err != nil {
+		return nil, mapRepoError(err)
+	}
+
+	return video, nil
+}
+
+// GetBySlug loads a video by slug using the same visibility rule as
+// Get.
+func (s *VideoService) GetBySlug(
+	ctx context.Context,
+	actor Actor,
+	slug string,
+) (*model.Video, error) {
+	video, err := s.videos.FindBySlug(ctx, strings.TrimSpace(slug))
+	if err != nil {
+		return nil, mapRepoError(err)
+	}
+
+	viewer := viewerCreatorID(ctx, s.creators, actor)
+	isOwner := owns(viewer, video.CreatorID)
+
+	public := video.Status == model.VideoStatusPublished &&
+		video.Visibility == model.VideoVisibilityPublic &&
+		video.ModerationStatus.PubliclyAllowed()
+
+	if !isOwner && !public {
+		return nil, ErrNotFound
+	}
+
+	if err := s.attachTags(ctx, video); err != nil {
+		return nil, err
+	}
+
+	return video, nil
+}
+
+// Playback returns the player-facing facts for a video after enforcing
+// access. Public and unlisted published videos are playable by direct
+// link; private/unpublished ones are owner-only. Moderation approval is
+// required for everyone except the owner (who can preview their own
+// upload while it is out of review).
+func (s *VideoService) Playback(
+	ctx context.Context,
+	actor Actor,
+	id uuid.UUID,
+) (*Playback, error) {
+	video, err := s.videos.FindByID(ctx, id)
+	if err != nil {
+		return nil, mapRepoError(err)
+	}
+
+	return s.playbackFor(ctx, actor, video)
+}
+
+// PlaybackBySlug is Playback keyed by the public slug.
+func (s *VideoService) PlaybackBySlug(
+	ctx context.Context,
+	actor Actor,
+	slug string,
+) (*Playback, error) {
+	video, err := s.videos.FindBySlug(ctx, strings.TrimSpace(slug))
+	if err != nil {
+		return nil, mapRepoError(err)
+	}
+
+	return s.playbackFor(ctx, actor, video)
+}
+
+func (s *VideoService) playbackFor(
+	ctx context.Context,
+	actor Actor,
+	video *model.Video,
+) (*Playback, error) {
+	viewer := viewerCreatorID(ctx, s.creators, actor)
+	isOwner := owns(viewer, video.CreatorID)
+
+	published := video.Status == model.VideoStatusPublished
+	linkable := published &&
+		(video.Visibility == model.VideoVisibilityPublic ||
+			video.Visibility == model.VideoVisibilityUnlisted)
+	approved := video.ModerationStatus.PubliclyAllowed()
+
+	if !isOwner && !(linkable && approved) {
+		return nil, ErrNotFound
+	}
+
+	if video.MediaAssetID == nil {
+		return nil, fmt.Errorf(
+			"%w: video has no processed media asset yet",
+			ErrNotPublishable,
+		)
+	}
+
+	if s.playback == nil {
+		return nil, ErrMediaUnavailable
+	}
+
+	playback, err := s.playback.Playback(ctx, *video.MediaAssetID)
+	if err != nil {
+		return nil, err
+	}
+
+	if !isOwner && playback.Status != "ready" {
+		return nil, fmt.Errorf(
+			"%w: video media is not ready",
+			ErrNotPublishable,
+		)
+	}
+
+	return playback, nil
+}
+
+// parseMediaStatus accepts the states the pipeline actually reports.
+func parseMediaStatus(raw string) (model.VideoStatus, error) {
+	parsed := model.VideoStatus(strings.TrimSpace(raw))
+
+	switch parsed {
+	case model.VideoStatusUploadPending,
+		model.VideoStatusUploaded,
+		model.VideoStatusProcessing,
+		model.VideoStatusReady,
+		model.VideoStatusFailed:
+		return parsed, nil
+
+	default:
+		return "", fmt.Errorf(
+			"%w: unsupported media status %q",
+			ErrInvalidInput,
+			raw,
+		)
+	}
+}
+
+func validateMediaStatusUpdate(
+	parsed model.VideoStatus,
+	update MediaStatusUpdate,
+) error {
+	if update.DurationSeconds != nil && *update.DurationSeconds < 0 {
+		return fmt.Errorf("%w: duration must be >= 0", ErrInvalidInput)
+	}
+
+	// "ready" is the publishable state, and publishing also requires
+	// the media asset. Without this gate the pipeline could report a
+	// ready video with no asset, leaving it permanently un-publishable
+	// with no way to tell which callback was incomplete.
+	if parsed == model.VideoStatusReady && update.MediaAssetID == nil {
+		return fmt.Errorf(
+			"%w: mediaAssetId is required when status is %q",
+			ErrInvalidInput,
+			string(model.VideoStatusReady),
+		)
+	}
+
+	return nil
 }
 
 // RecordView bumps the view counter by one. Counters are internal-only:
@@ -544,6 +910,41 @@ func (s *VideoService) ownedVideo(
 	}
 
 	return video, nil
+}
+
+// resolveCategory maps an optional category slug to its row. An empty
+// or nil slug clears the category; an unknown slug is a client error,
+// never a silent no-op.
+func (s *VideoService) resolveCategory(
+	ctx context.Context,
+	raw *string,
+) (*uuid.UUID, error) {
+	slug := normalizeSlugFilter(raw)
+	if slug == nil {
+		return nil, nil
+	}
+
+	if s.categories == nil {
+		return nil, fmt.Errorf(
+			"%w: category assignment is not configured",
+			ErrInvalidInput,
+		)
+	}
+
+	category, err := s.categories.FindBySlug(ctx, *slug)
+	if err != nil {
+		if errors.Is(err, repository.ErrCategoryNotFound) {
+			return nil, fmt.Errorf(
+				"%w: category %q does not exist",
+				ErrInvalidInput,
+				*slug,
+			)
+		}
+
+		return nil, fmt.Errorf("resolve category: %w", err)
+	}
+
+	return &category.ID, nil
 }
 
 // createWithUniqueSlug inserts with a generated slug, retrying with

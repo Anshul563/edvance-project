@@ -29,6 +29,8 @@ const mediaAssetColumns = `
 	bitrate,
 	container,
 	playback_url,
+	educational_confirmed_at,
+	rights_confirmed_at,
 	created_at,
 	updated_at,
 	processed_at
@@ -54,6 +56,8 @@ func scanMediaAsset(row pgx.Row) (*model.MediaAsset, error) {
 		&asset.Bitrate,
 		&asset.Container,
 		&asset.PlaybackURL,
+		&asset.EducationalConfirmedAt,
+		&asset.RightsConfirmedAt,
 		&asset.CreatedAt,
 		&asset.UpdatedAt,
 		&asset.ProcessedAt,
@@ -86,9 +90,10 @@ func (r *MediaRepository) Create(
 		`
 		INSERT INTO media_assets (
 			id, owner_id, type, original_filename, mime_type,
-			file_size_bytes, storage_key, status
+			file_size_bytes, storage_key, status,
+			educational_confirmed_at, rights_confirmed_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING `+mediaAssetColumns,
 		asset.ID,
 		asset.OwnerID,
@@ -98,6 +103,8 @@ func (r *MediaRepository) Create(
 		asset.FileSizeBytes,
 		asset.StorageKey,
 		asset.Status,
+		asset.EducationalConfirmedAt,
+		asset.RightsConfirmedAt,
 	)
 
 	created, err := scanMediaAsset(row)

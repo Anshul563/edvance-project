@@ -43,9 +43,14 @@ func New(
 		registerMediaRoutes(r, handlers, mw)
 	})
 
-	r.Route("/internal/v1/videos/processing", func(r chi.Router) {
+	r.Route("/internal/v1/videos", func(r chi.Router) {
+		r.With(mw.Internal).Get(
+			"/{mediaAssetID}/playback",
+			handlers.Media.Playback,
+		)
+
 		r.With(mw.Internal).Post(
-			"/callback",
+			"/processing/callback",
 			handlers.Media.ProcessingCallback,
 		)
 	})
@@ -60,6 +65,10 @@ func registerMediaRoutes(
 ) {
 	r.With(mw.Auth).Post("/initiate", handlers.Media.Initiate)
 	r.With(mw.Auth).Post("/{mediaAssetID}/complete", handlers.Media.Complete)
+	r.With(mw.Auth).Post(
+		"/{mediaAssetID}/retry-processing",
+		handlers.Media.RetryProcessing,
+	)
 	r.With(mw.Auth).Get("/{mediaAssetID}", handlers.Media.Get)
 	r.With(mw.Auth).Get("/", handlers.Media.List)
 	r.With(mw.Auth).Delete("/{mediaAssetID}", handlers.Media.Delete)

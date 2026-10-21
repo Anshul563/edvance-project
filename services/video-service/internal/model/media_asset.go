@@ -83,9 +83,15 @@ type MediaAsset struct {
 	Bitrate          *int64
 	Container        *string
 	PlaybackURL      *string
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
-	ProcessedAt      *time.Time
+
+	// Upload attestations: the creator confirmed the content is
+	// educational and that they hold the rights to upload it.
+	EducationalConfirmedAt *time.Time
+	RightsConfirmedAt      *time.Time
+
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	ProcessedAt *time.Time
 }
 
 // Playable reports whether the asset is ready for playback.

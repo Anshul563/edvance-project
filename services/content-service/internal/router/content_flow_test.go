@@ -241,6 +241,8 @@ func TestContentFlowIntegration(t *testing.T) {
 	videoService := service.NewVideoService(
 		repository.NewVideoRepository(pool),
 		resolver,
+		repository.NewCategoryRepository(pool),
+		nil,
 		publisher,
 		limits,
 	)

@@ -11,8 +11,8 @@ This inventory reflects the services that currently exist in the repository and 
 | Auth Service | Go | `services/auth-service` | default `8081`, `AUTH_SERVICE_PORT` / env config | Users, sessions, JWT, email verification | Active |
 | User Service | Go | `services/user-service` | default `8082` | User profiles and account data | Present |
 | Creator Service | Go | `services/creator-service` | default `8083` | Creator profiles and content ownership | Present |
-| Content Service | Go | `services/content-service` | default `8084` | Content entities and media references | Present |
-| Video Service | Go | `services/video-service` | default `8085` | Video/media metadata and ingestion workflow | Present |
+| Content Service | Go | `services/content-service` | default `8084` | Content entities plus standalone-video metadata, discovery, moderation, publication and playback access decisions | Active; see `docs/architecture/video-service.md` |
+| Video Service | Go | `services/video-service` | default `8085` | Media assets only: secure upload, processing pipeline, renditions/thumbnails/captions, playback facts | Active; see `docs/architecture/video-service.md` |
 | Course Service | Go | `services/course-service` | default `8086` | Course, section, and lesson ownership | Present |
 | Learning Service | Go | `services/learning-service` | default `8087` | Enrollments, progress, learning state | Present |
 | Social Service | Go | `services/social-service` | default `8088` | Social interactions and reputation data | Present |
@@ -35,6 +35,7 @@ This inventory reflects the services that currently exist in the repository and 
 - Learning progress and enrollments are owned by the Learning Service.
 - Payments and commerce domains remain separate from learning ownership.
 - Admin operations are intentionally fail-closed and restricted to explicit admin user IDs.
+- Standalone-video metadata is owned by the Content Service; media bytes and processing state are owned by the Video Service. They are linked only by `media_asset_id`.
 
 ## Local purchase profile
 

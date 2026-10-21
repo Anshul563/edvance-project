@@ -191,6 +191,14 @@ type internalStatusRequest struct {
 	Status          string  `json:"status"`
 	DurationSeconds *int    `json:"durationSeconds"`
 	MediaAssetID    *string `json:"mediaAssetId"`
+	ThumbnailURL    *string `json:"thumbnailUrl"`
+	ErrorCode       *string `json:"errorCode"`
+	ErrorMessage    *string `json:"errorMessage"`
+}
+
+type moderationRequest struct {
+	Status string  `json:"status"`
+	Reason *string `json:"reason"`
 }
 
 type countersRequest struct {

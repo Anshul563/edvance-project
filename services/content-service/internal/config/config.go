@@ -15,8 +15,16 @@ type Config struct {
 	Internal InternalConfig
 
 	CreatorServiceURL string
+	VideoService      VideoServiceConfig
 	Notification      NotificationConfig
 	Content           ContentConfig
+}
+
+// VideoServiceConfig points at the media authority. The internal token
+// guards /internal/v1/* on that service and is never a user credential.
+type VideoServiceConfig struct {
+	URL           string
+	InternalToken string
 }
 
 type DatabaseConfig struct {
@@ -108,6 +116,21 @@ func Load() (Config, error) {
 			"http://localhost:8083",
 		),
 
+		VideoService: VideoServiceConfig{
+			URL: getEnv(
+				"VIDEO_SERVICE_URL",
+				"http://localhost:8085",
+			),
+			// video-service calls this INTERNAL_SERVICE_TOKEN; the two
+			// services share the same private secret in every
+			// environment. INTERNAL_API_KEY is the content-side name
+			// for the same value, so it is a safe fallback.
+			InternalToken: firstNonEmpty(
+				os.Getenv("VIDEO_SERVICE_INTERNAL_TOKEN"),
+				os.Getenv("INTERNAL_API_KEY"),
+			),
+		},
+
 		Notification: NotificationConfig{
 			URL:           getEnv("NOTIFICATION_SERVICE_URL", "http://localhost:8092"),
 			InternalToken: os.Getenv("NOTIFICATION_INTERNAL_TOKEN"),
@@ -166,6 +189,16 @@ func envInt(key string, fallback int) (int, error) {
 	}
 
 	return parsed, nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+
+	return ""
 }
 
 func getEnv(key, fallback string) string {

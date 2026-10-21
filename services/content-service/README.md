@@ -36,6 +36,8 @@ JWT_ACCESS_SECRET=   # must match auth-service (validate-only here)
 JWT_ISSUER=edvance-auth
 JWT_AUDIENCE=edvance-api
 CREATOR_SERVICE_URL=http://localhost:8083
+VIDEO_SERVICE_URL=http://localhost:8085
+VIDEO_SERVICE_INTERNAL_TOKEN=   # defaults to INTERNAL_API_KEY
 NOTIFICATION_SERVICE_URL=http://localhost:8092
 NOTIFICATION_INTERNAL_TOKEN=
 INTERNAL_API_KEY=    # guards /internal/*; fail closed while empty
@@ -53,11 +55,15 @@ forwards `/api/v1/content/*` with the prefix stripped) and under
 
 ```text
 GET    /videos?page=&limit=&creator_id=&status=&visibility=
+              &category=&language=&tag=&q=&sort=newest|oldest|popular
 POST   /videos                              create (draft, slug generated)
 GET    /videos/:videoID                     owner full / public published
+GET    /videos/slug/:slug                   same rule, keyed by slug
+GET    /videos/:videoID/playback            access-checked player facts
+GET    /videos/slug/:slug/playback          direct-link form
 PATCH  /videos/:videoID                     partial update (owner)
 DELETE /videos/:videoID
-POST   /videos/:videoID/publish             ready + media -> published
+POST   /videos/:videoID/publish             ready + approved + media -> published
 POST   /videos/:videoID/unpublish           published -> ready/private
 GET    /creators/:creatorID/videos
 
@@ -81,7 +87,9 @@ Service-to-service routes live at the root only, never under the
 gateway prefix, and demand the shared `INTERNAL_API_KEY` (fail closed):
 
 ```text
-POST   /internal/videos/:videoID/status     {status,durationSeconds,mediaAssetId}
+POST   /internal/videos/:videoID/status     {status,durationSeconds,mediaAssetId,...}
+POST   /internal/media-assets/:mediaAssetID/status   pipeline callback shape
+POST   /internal/videos/:videoID/moderation {status,reason}
 POST   /internal/videos/:videoID/view
 POST   /internal/videos/:videoID/counters   {viewDelta,likeDelta,commentDelta}
 POST   /internal/shorts/:shortID/status | /view | /counters
@@ -108,15 +116,25 @@ back.
 
 ## Lifecycle
 
-- **videos / shorts:** `draft -> processing -> ready -> published`,
-  plus `archived`. Media status arrives only over `/internal/*`, and
-  the callback that says `ready` must also carry `mediaAssetId`
-  (otherwise `400`) so a row can never sit ready with no asset.
-  Unpublish returns `ready + private` and clears `published_at`.
+- **videos / shorts:** `draft -> upload_pending -> uploaded ->
+  processing -> ready -> published`, plus `failed` and `archived`.
+  Media status arrives only over `/internal/*`; the pipeline reports by
+  `mediaAssetId` as well as by video ID, and the callback that says
+  `ready` must also carry `mediaAssetId` (otherwise `400`) so a row can
+  never sit ready with no asset. Unpublish returns `ready + private` and
+  clears `published_at`; publishing an unlisted video keeps it
+  unlisted (direct-link only).
+- **moderation:** `approved` (default under the current post-hoc
+  policy), `pending_review`, `rejected`, `held`. Only approved content
+  is publicly discoverable or publishable. Rejecting/holding a
+  published video atomically withdraws it (`ready + private`, cleared
+  `published_at`). Only `/internal/*` can change moderation; client
+  attempts are rejected.
 - **posts:** `draft -> published` (unpublish returns `draft +
   private`). No media state.
 - **Publish gates** (all reasons reported at once):
-  - video: status `ready`, media asset present, title ≥ 3 chars
+  - video: status `ready`, media asset present, moderation `approved`,
+    title ≥ 3 chars
   - short: same, plus a duration within `MAX_SHORT_DURATION_SECONDS`
   - post: status `draft` and non-empty content within the limit
 - Publishing runs `UPDATE ... WHERE status = <expected>` in a
@@ -129,16 +147,23 @@ back.
 
 ## Visibility
 
-`published + public` is readable by everyone; everything else is
-owner-only and reads as **404** to non-owners (existence is not
+`published + public + approved` is readable by everyone; everything
+else is owner-only and reads as **404** to non-owners (existence is not
 leaked). List scope is the same rule, so an anonymous listing sees the
 public catalog and a creator additionally sees their own rows.
+
+Playback is separate from metadata reads: `published` videos are
+playable by direct link when `public` **or** `unlisted` (and approved),
+while private/unpublished playback is owner-only. content-service makes
+that decision, then fetches the manifest facts from video-service; an
+unreachable media authority returns `503 MEDIA_UNAVAILABLE`.
 
 ## Local development
 
 ```bash
 createdb edvance_content        # or: psql -c 'CREATE DATABASE edvance_content'
 psql "$DATABASE_URL" -f migrations/001_create_content_tables.sql
+psql "$DATABASE_URL" -f migrations/002_standalone_video.sql
 cp .env.example .env            # set JWT_ACCESS_SECRET and INTERNAL_API_KEY
 go run ./cmd/server
 ```

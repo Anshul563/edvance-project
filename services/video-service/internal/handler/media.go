@@ -142,6 +142,45 @@ func (h *MediaHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// RetryProcessing re-queues a failed asset for the owner.
+func (h *MediaHandler) RetryProcessing(w http.ResponseWriter, r *http.Request) {
+	assetID, ownerID, ok := h.loadOwnerAndAssetID(w, r)
+	if !ok {
+		return
+	}
+
+	view, err := h.Service.RetryProcessing(r.Context(), ownerID, assetID)
+	if err != nil {
+		writeServiceError(w, err)
+
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, view)
+}
+
+// Playback returns the safe playback projection for a ready asset.
+// Internal-only: content-service performs the access check first.
+func (h *MediaHandler) Playback(w http.ResponseWriter, r *http.Request) {
+	assetID, err := uuid.Parse(chi.URLParam(r, "mediaAssetID"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "invalid media asset id",
+		})
+
+		return
+	}
+
+	playback, err := h.Service.PlaybackInfo(r.Context(), assetID)
+	if err != nil {
+		writeServiceError(w, err)
+
+		return
+	}
+
+	writeJSON(w, http.StatusOK, playback)
+}
+
 // ProcessingCallback ingests engine results (internal-only route).
 func (h *MediaHandler) ProcessingCallback(w http.ResponseWriter, r *http.Request) {
 	var callback service.CallbackRequest

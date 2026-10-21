@@ -21,4 +21,10 @@ var (
 	ErrInvalidCallback = errors.New("invalid processing callback")
 	// ErrConflict maps to 409 for races the callers cannot retry away.
 	ErrConflict = errors.New("conflict")
+	// ErrNotReady is returned when playback facts are requested for an
+	// asset that has not finished processing.
+	ErrNotReady = errors.New("media asset is not ready")
+	// ErrNotRetryable is returned when retry-processing is requested
+	// for an asset that is not in the failed state.
+	ErrNotRetryable = errors.New("media asset is not retryable")
 )

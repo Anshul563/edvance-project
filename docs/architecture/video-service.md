@@ -3,11 +3,14 @@
 ## Boundary
 
 ```text
-content-service
-      ↓  owns WHAT the content is (title, description, lessons, order)
-video-service
-      ↓  owns the MEDIA REPRESENTATION of that content
-         (record, processing state, source/playback metadata)
+content-service  (edvance_content)
+      ↓  owns WHAT the video is and WHO may see it:
+         title, description, tags, category, language, visibility,
+         moderation, publication, discovery, access decisions
+video-service    (edvance_video)
+      ↓  owns the MEDIA and its pipeline:
+         media_assets, uploads, processing state, renditions,
+         thumbnails, captions, playback facts
 media-engine (future Go + FFmpeg service)
       ↓  owns PROCESSING the actual media
 object storage (future)
@@ -16,23 +19,21 @@ CDN (future)
       ↓  owns DELIVERY
 ```
 
-The important distinction:
-
-- **content-service** — what the content is.
-- **video-service** — the media representation of that content.
-- **media-engine** — processing the actual media (will own FFmpeg).
+There is exactly one `videos` table, in content-service. video-service
+has no video-metadata table and does not know titles, visibility or
+moderation. The two services are linked by the opaque `media_asset_id`
+stored on the content row.
 
 ## Data ownership
 
-Each service owns its database. video-service stores only its own
-`videos` rows. `content_id` and `creator_id` are opaque UUID references:
-
 ```text
 video-service   ❌ SELECT from edvance_content / edvance_creator / ...
-video-service   ✅ stores content_id / creator_id as plain UUIDs
+video-service   ✅ stores owner_id as a plain UUID (JWT sub)
+content-service ✅ stores media_asset_id as a plain UUID
 ```
 
-No cross-service foreign keys. No cross-service JOINs.
+No cross-service foreign keys and no cross-service JOINs. Each service
+owns its own database and migrations.
 
 ## Identity flow
 
@@ -43,55 +44,80 @@ API Gateway  (strips /api/v1/videos, no business logic)
   ↓
 Video Service  (validates JWT locally: signature, expiry,
                 issuer, audience, HS256-only)
-  ↓  sub → user_id
-CreatorAuthorization / ContentAuthorization
-  (v1: trust JWT identity · later: internal gRPC to
-   creator-service / content-service)
-  ↓
+  ↓  sub → owner_id
 PostgreSQL (edvance_video)
 ```
 
-## Processing flow (current, synchronous seams)
+Upload ownership comes only from the JWT `sub`; client-supplied user IDs
+are never trusted.
+
+## Upload and processing flow
 
 ```text
 Client (creator owner)
-  ↓  POST /videos {contentId, creatorId}          → pending
-  ↓  PATCH /videos/:id/source {sourceObjectKey}  → uploading
-Media engine (future; today: internal route + shared key)
-  ↓  POST /internal/videos/:id/processing {processing} → processing
-  ↓  POST /internal/videos/:id/processing {ready, …}    → ready
-Client / player
-  ↓  GET /videos/:id  (manifest only when playable)
+  ↓  POST /initiate {filename,mimeType,size,
+                    educationalConfirmed,rightsConfirmed}
+  ↓                                     created → uploading
+  ↓  PUT bytes directly to presigned storage URL
+  ↓  POST /{mediaAssetID}/complete       uploading → uploaded
+Worker
+  ↓  claim job (FOR UPDATE SKIP LOCKED)  uploaded → processing
+  ↓  dispatch to engine
+Engine
+  ↓  POST /internal/v1/videos/processing/callback
+  ↓                                     processing → ready | failed
+  ↓  POST /{mediaAssetID}/retry-processing  failed → processing
+Player
+  ↓  GET /internal/v1/videos/{mediaAssetID}/playback  (content-service only)
 ```
 
-The internal route is intentionally separate from public routes and is
-not proxied by the gateway. Its shared-key guard is a placeholder for
-mTLS / service mesh.
+Video uploads are gated on two attestations — that the upload is
+educational content and that the uploader holds the rights. The
+timestamps are persisted on the asset. Audio and image uploads are not
+gated.
 
-## Future event-driven processing
+The internal routes are separate from user routes, are not proxied by
+the gateway, and require the shared service token. content-service is
+the playback authority: it checks ownership/visibility first, then asks
+video-service for player-facing facts. video-service never decides who
+may watch.
 
-Planned events (not implemented — no broker yet):
+## Content-service integration
+
+Progress is announced best-effort to content-service at `uploaded`,
+`processing`, `ready` and `failed`:
 
 ```text
-video.created
-video.uploaded
-video.processing.started
-video.processing.completed
-video.processing.failed
+POST {CONTENT_SERVICE_URL}/internal/media-assets/{mediaAssetID}/status
+Authorization: Bearer <CONTENT_SERVICE_INTERNAL_TOKEN>
+
+{status, videoId?, durationSeconds?, thumbnailUrl?,
+ errorCode?, errorMessage?}
 ```
 
-The service is already compatible: state changes funnel through
-`UpdateProcessingState`, and all writes are conditional on the expected
-previous status, so duplicate/redelivered events resolve into
-conflicts instead of corrupt state.
+Notifications are idempotent and non-fatal: an outage or a `404` (row
+not found) never rolls back the pipeline. The callback is the only
+writer of media-derived fields on the content row.
+
+## State machine
+
+```text
+created → uploading → uploaded → processing → ready
+                       processing → failed
+                       failed → processing (retry processing)
+                       * → deleted
+```
+
+Transitions are explicit (`CanTransition`) and enforced again by
+conditional SQL (`WHERE status = $expected`), so concurrent callbacks or
+a racing delete resolve into conflicts, never skipped steps.
 
 ## Deliberate limitations (v1)
 
-- One video per content (UNIQUE content_id); no multi-track assets.
-- Handles, courses, lessons, comments, likes, payments, search,
-  recommendations, analytics: other (mostly future) services.
-- No file upload, transcoding, HLS/DASH, R2/S3, or CDN integration.
-- Ownership checks trust the JWT identity until gRPC authorizers land.
-- `ready` without a manifest is rejected; reprocessing a failed video
-  needs an explicit future workflow (`failed` is movable only to
-  `deleted` today).
+- No NATS/Kafka; notifications are direct HTTP calls.
+- No workers running FFmpeg in-repo; the engine is an external boundary
+  with `cmd/mockengine` as the local stand-in.
+- Ownership trusts JWT identity until gRPC authorizers land.
+- One primary thumbnail and one default caption are promoted; alternate
+  tracks are stored but not exposed as a choice yet.
+- No CDN invalidation on delete; cleanup deletes tracked objects only.

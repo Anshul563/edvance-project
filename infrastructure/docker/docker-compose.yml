@@ -401,6 +401,118 @@ services:
       retries: 12
       start_period: 10s
 
+  content-service:
+    profiles: ["content"]
+    build:
+      context: ../../services/content-service
+      dockerfile: Dockerfile
+    image: edvance/content-service:local
+    container_name: edvance-content-service
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      CONTENT_SERVICE_PORT: "8084"
+      DATABASE_URL: ${CONTENT_DATABASE_URL:-postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/edvance_content?sslmode=disable}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev-local-jwt-secret}
+      JWT_ISSUER: ${JWT_ISSUER:-edvance-auth}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-edvance-api}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-dev-local-internal-key}
+      CREATOR_SERVICE_URL: "http://creator-service:8083"
+      VIDEO_SERVICE_URL: "http://video-service:8085"
+      VIDEO_SERVICE_INTERNAL_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-local-internal-token}
+      NOTIFICATION_SERVICE_URL: "http://notification-service:8092"
+      NOTIFICATION_INTERNAL_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-local-internal-token}
+    ports:
+      - "8084:8084"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8084/health >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  video-service:
+    profiles: ["content"]
+    build:
+      context: ../../services/video-service
+      dockerfile: Dockerfile
+    image: edvance/video-service:local
+    container_name: edvance-video-service
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      VIDEO_SERVICE_PORT: "8085"
+      DATABASE_URL: ${VIDEO_DATABASE_URL:-postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/edvance_video?sslmode=disable}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev-local-jwt-secret}
+      JWT_ISSUER: ${JWT_ISSUER:-edvance-auth}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-edvance-api}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-local-internal-token}
+      S3_ENDPOINT: "http://s3stub:9000"
+      S3_REGION: auto
+      S3_BUCKET: ${S3_BUCKET:-edvance-media}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-dev-local-access-key}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-dev-local-secret-key}
+      S3_PUBLIC_URL: ${S3_PUBLIC_URL:-}
+      MEDIA_ENGINE_URL: "http://mockengine:9090"
+      MEDIA_ENGINE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-local-internal-token}
+      VIDEO_SERVICE_CALLBACK_URL: "http://video-service:8085/internal/v1/videos/processing/callback"
+      CONTENT_SERVICE_URL: "http://content-service:8084"
+      CONTENT_SERVICE_INTERNAL_TOKEN: ${INTERNAL_API_KEY:-dev-local-internal-key}
+    ports:
+      - "8085:8085"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      s3stub:
+        condition: service_healthy
+      mockengine:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8085/health >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  s3stub:
+    profiles: ["content"]
+    build:
+      context: ../../services/video-service
+      dockerfile: Dockerfile.stub
+      args:
+        TARGET: s3stub
+    image: edvance/video-s3stub:local
+    container_name: edvance-video-s3stub
+    environment:
+      S3STUB_PORT: "9000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9000/health >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  mockengine:
+    profiles: ["content"]
+    build:
+      context: ../../services/video-service
+      dockerfile: Dockerfile.stub
+      args:
+        TARGET: mockengine
+    image: edvance/video-mockengine:local
+    container_name: edvance-video-mockengine
+    environment:
+      MOCKENGINE_PORT: "9090"
+      MEDIA_ENGINE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-local-internal-token}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-local-internal-token}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9090/health >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
   mediamtx:
     build:
       context: ../../infrastructure/docker/mediamtx

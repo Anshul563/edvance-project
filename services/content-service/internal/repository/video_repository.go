@@ -24,11 +24,17 @@ const videoColumns = `
 	title,
 	description,
 	slug,
+	language,
+	category_id,
 	visibility,
 	status,
+	moderation_status,
+	moderation_reason,
 	media_asset_id,
 	thumbnail_url,
 	duration_seconds,
+	processing_error_code,
+	processing_error_message,
 	view_count,
 	like_count,
 	comment_count,
@@ -56,11 +62,17 @@ func scanVideo(row interface{ Scan(...any) error }) (*model.Video, error) {
 		&video.Title,
 		&video.Description,
 		&video.Slug,
+		&video.Language,
+		&video.CategoryID,
 		&video.Visibility,
 		&video.Status,
+		&video.ModerationStatus,
+		&video.ModerationReason,
 		&video.MediaAssetID,
 		&video.ThumbnailURL,
 		&video.DurationSeconds,
+		&video.ProcessingErrorCode,
+		&video.ProcessingErrorMessage,
 		&video.ViewCount,
 		&video.LikeCount,
 		&video.CommentCount,
@@ -97,12 +109,15 @@ func (r *VideoRepository) CreateWithTags(
 			title,
 			description,
 			slug,
+			language,
+			category_id,
 			visibility,
 			status,
+			moderation_status,
 			media_asset_id,
 			thumbnail_url
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING id, created_at, updated_at`
 
 	err = tx.QueryRow(
@@ -112,8 +127,11 @@ func (r *VideoRepository) CreateWithTags(
 		video.Title,
 		video.Description,
 		video.Slug,
+		video.Language,
+		video.CategoryID,
 		video.Visibility,
 		video.Status,
+		video.ModerationStatus,
 		video.MediaAssetID,
 		video.ThumbnailURL,
 	).Scan(&video.ID, &video.CreatedAt, &video.UpdatedAt)
@@ -199,6 +217,8 @@ func (r *VideoRepository) UpdateWithTags(
 		    visibility = $4,
 		    thumbnail_url = $5,
 		    media_asset_id = $6,
+		    language = $7,
+		    category_id = $8,
 		    updated_at = NOW()
 		WHERE id = $1
 		RETURNING ` + videoColumns
@@ -212,6 +232,8 @@ func (r *VideoRepository) UpdateWithTags(
 		video.Visibility,
 		video.ThumbnailURL,
 		video.MediaAssetID,
+		video.Language,
+		video.CategoryID,
 	))
 
 	if err != nil {
@@ -268,7 +290,9 @@ func (r *VideoRepository) DeleteWithTags(
 
 // Publish flips ready -> published atomically. The WHERE clause is the
 // concurrency guard: two racing publishes serialize on the row lock and
-// exactly one wins; the loser sees no matching row.
+// exactly one wins; the loser sees no matching row. Moderation approval
+// is part of the guard so a rejected/held row can never be published by
+// a request that raced the moderator.
 func (r *VideoRepository) Publish(
 	ctx context.Context,
 	id uuid.UUID,
@@ -276,10 +300,15 @@ func (r *VideoRepository) Publish(
 	query := `
 		UPDATE videos
 		SET status = 'published',
-		    visibility = 'public',
+		    visibility = CASE
+		        WHEN visibility = 'unlisted' THEN 'unlisted'
+		        ELSE 'public'
+		    END,
 		    published_at = NOW(),
 		    updated_at = NOW()
-		WHERE id = $1 AND status = 'ready'
+		WHERE id = $1
+		  AND status = 'ready'
+		  AND moderation_status = 'approved'
 		RETURNING ` + videoColumns
 
 	return r.execLifecycle(ctx, query, ErrVideoInvalidPublish, id)
@@ -305,27 +334,136 @@ func (r *VideoRepository) Unpublish(
 }
 
 // UpdateMediaStatus records pipeline progress reported by the
-// video/media service through the internal API. Draft, processing, and
-// ready are editable; published and archived content is frozen so a
-// late callback cannot resurrect or mutate live content.
+// video/media service through the internal API. Draft through ready are
+// editable; published and archived content is frozen so a late callback
+// cannot resurrect or mutate live content. Processing errors are stored
+// only for the failed state and cleared as soon as processing resumes.
 func (r *VideoRepository) UpdateMediaStatus(
 	ctx context.Context,
 	id uuid.UUID,
 	status model.VideoStatus,
 	durationSeconds *int,
 	mediaAssetID *uuid.UUID,
+	thumbnailURL *string,
+	errorCode *string,
+	errorMessage *string,
 ) (*model.Video, error) {
 	query := `
 		UPDATE videos
 		SET status = $2,
 		    duration_seconds = COALESCE($3, duration_seconds),
 		    media_asset_id = COALESCE($4, media_asset_id),
+		    thumbnail_url = COALESCE($5, thumbnail_url),
+		    processing_error_code =
+		        CASE WHEN $2 = 'failed' THEN $6 ELSE NULL END,
+		    processing_error_message =
+		        CASE WHEN $2 = 'failed' THEN $7 ELSE NULL END,
 		    updated_at = NOW()
 		WHERE id = $1
-		  AND status IN ('draft', 'processing', 'ready')
+		  AND status IN (
+		      'draft',
+		      'upload_pending',
+		      'uploaded',
+		      'processing',
+		      'ready',
+		      'failed'
+		  )
 		RETURNING ` + videoColumns
 
-	return r.execLifecycle(ctx, query, ErrVideoInvalidStatus, id, status, durationSeconds, mediaAssetID)
+	return r.execLifecycle(
+		ctx,
+		query,
+		ErrVideoInvalidStatus,
+		id,
+		status,
+		durationSeconds,
+		mediaAssetID,
+		thumbnailURL,
+		errorCode,
+		errorMessage,
+	)
+}
+
+// FindByMediaAssetID returns the content rows linked to one media asset.
+// Normally there is exactly one, but the query does not assume that: a
+// retried upload or a re-used asset must never silently drop a row.
+func (r *VideoRepository) FindByMediaAssetID(
+	ctx context.Context,
+	mediaAssetID uuid.UUID,
+) ([]*model.Video, error) {
+	query := `
+		SELECT ` + videoColumns + `
+		FROM videos
+		WHERE media_asset_id = $1
+		ORDER BY created_at DESC`
+
+	rows, err := r.db.Query(ctx, query, mediaAssetID)
+	if err != nil {
+		return nil, fmt.Errorf("find videos by media asset: %w", err)
+	}
+	defer rows.Close()
+
+	videos := []*model.Video{}
+
+	for rows.Next() {
+		video, err := scanVideo(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan video: %w", err)
+		}
+
+		videos = append(videos, video)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("find videos by media asset: %w", err)
+	}
+
+	return videos, nil
+}
+
+// SetModeration records a review decision. Rejecting or holding content
+// that is currently published also withdraws it in the same statement,
+// so a rejected video can never stay reachable while a separate cleanup
+// call is in flight.
+func (r *VideoRepository) SetModeration(
+	ctx context.Context,
+	id uuid.UUID,
+	status model.ModerationStatus,
+	reason *string,
+) (*model.Video, error) {
+	query := `
+		UPDATE videos
+		SET moderation_status = $2,
+		    moderation_reason = $3,
+		    status = CASE
+		        WHEN $2 IN ('rejected', 'held') AND status = 'published'
+		        THEN 'ready'
+		        ELSE status
+		    END,
+		    visibility = CASE
+		        WHEN $2 IN ('rejected', 'held') AND status = 'published'
+		        THEN 'private'
+		        ELSE visibility
+		    END,
+		    published_at = CASE
+		        WHEN $2 IN ('rejected', 'held') AND status = 'published'
+		        THEN NULL
+		        ELSE published_at
+		    END,
+		    updated_at = NOW()
+		WHERE id = $1
+		RETURNING ` + videoColumns
+
+	video, err := scanVideo(r.db.QueryRow(ctx, query, id, status, reason))
+	if err != nil {
+		if isNoRows(err) {
+			return nil, ErrVideoNotFound
+		}
+
+		return nil, fmt.Errorf("set video moderation: %w", err)
+	}
+
+	return video, nil
 }
 
 // IncrementCounters applies counter deltas supplied by internal callers
@@ -369,14 +507,24 @@ func (r *VideoRepository) IncrementCounters(
 }
 
 // VideoFilter scopes list queries. ViewerCreatorID enforces the
-// visibility rule: rows must be published+public unless they belong to
-// the viewer. A nil ViewerCreatorID means anonymous — published+public
-// only.
+// visibility rule: rows must be published+public+moderation-approved
+// unless they belong to the viewer. A nil ViewerCreatorID means
+// anonymous — the public slice only.
+//
+// CategorySlug/Language/TagSlug/Query narrow discovery. Sort accepts
+// the same values the HTTP layer validates: newest (default), oldest,
+// popular.
 type VideoFilter struct {
 	CreatorID       *uuid.UUID
 	Status          *model.VideoStatus
 	Visibility      *model.VideoVisibility
 	ViewerCreatorID *uuid.UUID
+
+	CategorySlug *string
+	Language     *string
+	TagSlug      *string
+	Query        *string
+	Sort         string
 }
 
 func (f VideoFilter) where() (string, []any) {
@@ -384,10 +532,18 @@ func (f VideoFilter) where() (string, []any) {
 	args := []any{}
 
 	if f.ViewerCreatorID != nil {
-		clauses = append(clauses, "((status = 'published' AND visibility = 'public') OR creator_id = $1)")
+		clauses = append(
+			clauses,
+			"((status = 'published' AND visibility = 'public'"+
+				" AND moderation_status = 'approved') OR creator_id = $1)",
+		)
 		args = append(args, *f.ViewerCreatorID)
 	} else {
-		clauses = append(clauses, "(status = 'published' AND visibility = 'public')")
+		clauses = append(
+			clauses,
+			"(status = 'published' AND visibility = 'public'"+
+				" AND moderation_status = 'approved')",
+		)
 	}
 
 	pos := len(args) + 1
@@ -410,6 +566,47 @@ func (f VideoFilter) where() (string, []any) {
 		pos++
 	}
 
+	if f.CategorySlug != nil {
+		clauses = append(
+			clauses,
+			fmt.Sprintf(
+				"EXISTS (SELECT 1 FROM categories c"+
+					" WHERE c.id = videos.category_id AND c.slug = $%d)",
+				pos,
+			),
+		)
+		args = append(args, *f.CategorySlug)
+		pos++
+	}
+
+	if f.Language != nil {
+		clauses = append(clauses, fmt.Sprintf("language = $%d", pos))
+		args = append(args, *f.Language)
+		pos++
+	}
+
+	if f.TagSlug != nil {
+		clauses = append(
+			clauses,
+			fmt.Sprintf(
+				"EXISTS (SELECT 1 FROM video_tags vt"+
+					" JOIN tags t ON t.id = vt.tag_id"+
+					" WHERE vt.content_id = videos.id AND t.slug = $%d)",
+				pos,
+			),
+		)
+		args = append(args, *f.TagSlug)
+		pos++
+	}
+
+	if f.Query != nil {
+		clauses = append(
+			clauses,
+			fmt.Sprintf("title ILIKE '%%' || $%d || '%%'", pos),
+		)
+		args = append(args, *f.Query)
+	}
+
 	combined := ""
 	for i, clause := range clauses {
 		if i > 0 {
@@ -420,6 +617,19 @@ func (f VideoFilter) where() (string, []any) {
 	}
 
 	return combined, args
+}
+
+// orderBy is derived only from the closed set of sort values the
+// handler accepts, so it is never interpolated from raw input.
+func (f VideoFilter) orderBy() string {
+	switch f.Sort {
+	case "oldest":
+		return "ORDER BY published_at ASC NULLS LAST, created_at ASC, id ASC"
+	case "popular":
+		return "ORDER BY view_count DESC, published_at DESC NULLS LAST, id DESC"
+	default:
+		return "ORDER BY published_at DESC NULLS LAST, created_at DESC, id DESC"
+	}
 }
 
 func (r *VideoRepository) List(
@@ -434,7 +644,7 @@ func (r *VideoRepository) List(
 		SELECT ` + videoColumns + `
 		FROM videos
 		WHERE ` + where + `
-		ORDER BY created_at DESC, id DESC
+		` + filter.orderBy() + `
 		LIMIT $` + fmt.Sprint(len(args)+1) + ` OFFSET $` + fmt.Sprint(len(args)+2)
 
 	args = append(args, limit, offset)

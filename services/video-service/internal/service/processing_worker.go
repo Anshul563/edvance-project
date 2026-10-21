@@ -30,7 +30,15 @@ type ProcessingWorker struct {
 	retryBaseSeconds int
 	pollInterval     time.Duration
 
-	logger *slog.Logger
+	notifier StatusNotifier
+	logger   *slog.Logger
+}
+
+// SetStatusNotifier attaches the content-service notifier to the
+// worker so processing/failure announcements are emitted from the same
+// place that owns the dispatch decision.
+func (w *ProcessingWorker) SetStatusNotifier(notifier StatusNotifier) {
+	w.notifier = notifier
 }
 
 // NewProcessingWorker builds the worker. workerCount and maxAttempts
@@ -189,6 +197,11 @@ func (w *ProcessingWorker) processDispatch(
 		return
 	}
 
+	slogStatus(w.logger, w.notifier, StatusEvent{
+		MediaAssetID: job.MediaAssetID,
+		Status:       string(model.AssetStatusProcessing),
+	})
+
 	request := client.ProcessRequest{
 		JobID:            job.ID.String(),
 		MediaAssetID:     job.MediaAssetID.String(),
@@ -247,6 +260,12 @@ func (w *ProcessingWorker) failOrRequeue(job *model.ProcessingJob, message strin
 				"error", err,
 			)
 		}
+
+		slogStatus(w.logger, w.notifier, StatusEvent{
+			MediaAssetID: job.MediaAssetID,
+			Status:       string(model.AssetStatusFailed),
+			ErrorMessage: message,
+		})
 
 		return
 	}

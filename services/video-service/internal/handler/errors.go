@@ -32,6 +32,10 @@ func mapServiceError(err error) (int, string) {
 		errors.Is(err, service.ErrInvalidCallback):
 		return http.StatusBadRequest, err.Error()
 
+	case errors.Is(err, service.ErrNotReady),
+		errors.Is(err, service.ErrNotRetryable):
+		return http.StatusConflict, err.Error()
+
 	case errors.Is(err, service.ErrConflict),
 		errors.Is(err, model.ErrInvalidTransition),
 		errors.Is(err, repository.ErrUniqueConflict),

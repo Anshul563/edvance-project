@@ -37,6 +37,11 @@ var (
 	// because creator-service failed. Reported as 500, never leaked
 	// as a transport error.
 	ErrCreatorUnavailable = errors.New("creator service unavailable")
+
+	// ErrMediaUnavailable means the playback authority (video-service)
+	// could not be reached or rejected the internal call. Reported as
+	// 503: the video exists, but playback cannot be resolved right now.
+	ErrMediaUnavailable = errors.New("media service unavailable")
 )
 
 // mapRepoError converts repository-layer errors into service errors.

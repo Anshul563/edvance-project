@@ -27,3 +27,9 @@ WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'edvance_payment')\gex
 
 SELECT 'CREATE DATABASE edvance_live'
 WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'edvance_live')\gexec
+
+SELECT 'CREATE DATABASE edvance_content'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'edvance_content')\gexec
+
+SELECT 'CREATE DATABASE edvance_video'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'edvance_video')\gexec

@@ -122,6 +122,18 @@ func (s *MediaService) handleCallbackFailure(
 		"error", message,
 	)
 
+	code := ""
+	if callback.Error != nil {
+		code = callback.Error.Code
+	}
+
+	s.notifyStatus(ctx, StatusEvent{
+		MediaAssetID: asset.ID,
+		Status:       string(model.AssetStatusFailed),
+		ErrorCode:    code,
+		ErrorMessage: message,
+	})
+
 	return nil
 }
 
@@ -162,6 +174,36 @@ func (s *MediaService) handleCallbackSuccess(
 	if _, err := s.jobs.MarkCompleted(ctx, job.ID); err != nil {
 		return fmt.Errorf("complete job: %w", err)
 	}
+
+	var thumbnailURL *string
+
+	if len(callback.Thumbnails) > 0 {
+		primary := callback.Thumbnails[0]
+
+		for _, output := range callback.Thumbnails {
+			if output.IsPrimary {
+				primary = output
+
+				break
+			}
+		}
+
+		if primary.URL != nil {
+			thumbnailURL = primary.URL
+		} else if primary.StorageKey != "" {
+			value := s.objectStoreURL(ctx, primary.StorageKey)
+			if value != "" {
+				thumbnailURL = &value
+			}
+		}
+	}
+
+	s.notifyStatus(ctx, StatusEvent{
+		MediaAssetID:    asset.ID,
+		Status:          string(model.AssetStatusReady),
+		DurationSeconds: logDuration(meta.DurationSeconds),
+		ThumbnailURL:    thumbnailURL,
+	})
 
 	return nil
 }

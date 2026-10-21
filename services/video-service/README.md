@@ -33,26 +33,43 @@ the gateway. `S3_*` describe any S3-compatible endpoint (R2, S3, MinIO):
 when `S3_PUBLIC_URL` is set, playback URLs are stable public links,
 otherwise they are presigned. `MEDIA_ENGINE_URL` points at the engine
 that owns FFmpeg; the repository ships `cmd/mockengine` as a local
-development stand-in.
+development stand-in. `CONTENT_SERVICE_URL` and
+`CONTENT_SERVICE_INTERNAL_TOKEN` configure the best-effort progress
+notifications (the token defaults to `INTERNAL_SERVICE_TOKEN`).
 
 ## Endpoints
 
 Authenticated (JWT, ownership enforced):
 
 ```text
-POST   /initiate                     {filename, mimeType, size} -> 201 {uploadUrl, asset}
+POST   /initiate                     {filename, mimeType, size,
+                                      educationalConfirmed, rightsConfirmed}
+                                                                 -> 201 {uploadUrl, asset}
 POST   /{mediaAssetID}/complete      (no body)                   -> 200 asset (queues transcode)
+POST   /{mediaAssetID}/retry-processing                          -> 202 asset (failed -> processing)
 GET    /{mediaAssetID}                                            -> 200 asset + renditions
 GET    /?status=&limit=&offset=                                  -> 200 {assets}
 DELETE /{mediaAssetID}                                           -> 204 (soft delete + cleanup job)
 ```
+
+Video uploads require both attestations (`educationalConfirmed`,
+`rightsConfirmed`); the timestamps are stored on the asset. Audio/image
+uploads are not gated.
 
 Internal (media engine only, `X-Internal-Key: <INTERNAL_SERVICE_TOKEN>`,
 never proxied by the gateway):
 
 ```text
 POST /internal/v1/videos/processing/callback   -> 202 (idempotent)
+GET  /internal/v1/videos/{mediaAssetID}/playback
+                                               -> 200 playback projection
+                                               -> 409 while not ready
 ```
+
+The playback route returns only player-facing facts — manifest URL,
+duration, dimensions, primary thumbnail, captions — never storage keys
+or original filenames. content-service is the access-control authority
+and calls it after its own visibility check.
 
 Health:
 
@@ -66,8 +83,9 @@ strips `/api/v1/videos` and forwards the rest to this service.
 
 ## Upload flow
 
-1. `POST /initiate` creates an asset (`created → uploading`) and returns
-   a presigned PUT bound to the validated MIME type. Storage key is
+1. `POST /initiate` checks the upload attestations for video, creates an
+   asset (`created → uploading`) and returns a presigned PUT bound to the
+   validated MIME type. Storage key is
    server-derived (`videos/{owner}/{asset}/original.{ext}`), never the
    client filename; path-traversal filenames are rejected.
 2. The client PUTs bytes directly to that URL with the matching
@@ -90,6 +108,12 @@ strips `/api/v1/videos` and forwards the rest to this service.
 Delete marks the asset `deleted` (instantly stops playback; every read
 path checks status) and enqueues a `cleanup` job that deletes every
 tracked object. No byte is deleted synchronously.
+
+Progress is announced best-effort to content-service (the owner of the
+user-facing video row) at `uploaded`, `processing`, `ready` and
+`failed`. Notifications carry the media asset ID, duration, primary
+thumbnail and error text; a content-service outage never fails the
+pipeline.
 
 ## State machine
 
@@ -118,6 +142,7 @@ a racing delete resolve into conflicts, never skipped steps.
 
 ```bash
 psql "$DATABASE_URL" -f migrations/001_create_video_tables.sql
+psql "$DATABASE_URL" -f migrations/002_upload_attestation.sql
 go run ./cmd/s3stub &                                        # S3-compatible stand-in (or real MinIO/R2/S3)
 go run ./cmd/mockengine &                                     # engine stand-in
 go run ./cmd/server

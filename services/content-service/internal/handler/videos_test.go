@@ -28,14 +28,19 @@ const (
 // stubVideos implements videoService with canned results and records
 // what the handler passed through.
 type stubVideos struct {
-	video *model.Video
-	page  service.Page[*model.Video]
-	err   error
+	video    *model.Video
+	page     service.Page[*model.Video]
+	playback *service.Playback
+	err      error
 
-	gotActor  service.Actor
-	gotID     uuid.UUID
-	gotInput  service.CreateVideoInput
-	gotParams service.ListVideosParams
+	gotActor       service.Actor
+	gotID          uuid.UUID
+	gotSlug        string
+	gotInput       service.CreateVideoInput
+	gotUpdateInput service.UpdateVideoInput
+	gotParams      service.ListVideosParams
+	gotReason      *string
+	gotAssetKey    uuid.UUID
 
 	gotStatus          string
 	gotDurationSeconds *int
@@ -91,8 +96,39 @@ func (s *stubVideos) Update(
 	_ context.Context,
 	actor service.Actor,
 	id uuid.UUID,
-	_ service.UpdateVideoInput,
+	input service.UpdateVideoInput,
 ) (*model.Video, error) {
+	s.gotActor = actor
+	s.gotID = id
+	s.gotUpdateInput = input
+
+	if s.err != nil {
+		return nil, s.err
+	}
+
+	return s.video, nil
+}
+
+func (s *stubVideos) GetBySlug(
+	_ context.Context,
+	actor service.Actor,
+	slug string,
+) (*model.Video, error) {
+	s.gotActor = actor
+	s.gotSlug = slug
+
+	if s.err != nil {
+		return nil, s.err
+	}
+
+	return s.video, nil
+}
+
+func (s *stubVideos) Playback(
+	_ context.Context,
+	actor service.Actor,
+	id uuid.UUID,
+) (*service.Playback, error) {
 	s.gotActor = actor
 	s.gotID = id
 
@@ -100,7 +136,22 @@ func (s *stubVideos) Update(
 		return nil, s.err
 	}
 
-	return s.video, nil
+	return s.playback, nil
+}
+
+func (s *stubVideos) PlaybackBySlug(
+	_ context.Context,
+	actor service.Actor,
+	slug string,
+) (*service.Playback, error) {
+	s.gotActor = actor
+	s.gotSlug = slug
+
+	if s.err != nil {
+		return nil, s.err
+	}
+
+	return s.playback, nil
 }
 
 func (s *stubVideos) Delete(
@@ -158,14 +209,45 @@ func (s *stubVideos) ListVideos(
 func (s *stubVideos) SetMediaStatus(
 	_ context.Context,
 	id uuid.UUID,
+	update service.MediaStatusUpdate,
+) (*model.Video, error) {
+	s.gotID = id
+	s.gotStatus = update.Status
+	s.gotDurationSeconds = update.DurationSeconds
+	s.gotMediaAssetID = update.MediaAssetID
+
+	if s.err != nil {
+		return nil, s.err
+	}
+
+	return s.video, nil
+}
+
+func (s *stubVideos) SetMediaStatusByMediaAsset(
+	_ context.Context,
+	mediaAssetID uuid.UUID,
+	update service.MediaStatusUpdate,
+) ([]*model.Video, error) {
+	s.gotAssetKey = mediaAssetID
+	s.gotStatus = update.Status
+	s.gotDurationSeconds = update.DurationSeconds
+
+	if s.err != nil {
+		return nil, s.err
+	}
+
+	return []*model.Video{s.video}, nil
+}
+
+func (s *stubVideos) SetModeration(
+	_ context.Context,
+	id uuid.UUID,
 	status string,
-	durationSeconds *int,
-	mediaAssetID *uuid.UUID,
+	reason *string,
 ) (*model.Video, error) {
 	s.gotID = id
 	s.gotStatus = status
-	s.gotDurationSeconds = durationSeconds
-	s.gotMediaAssetID = mediaAssetID
+	s.gotReason = reason
 
 	if s.err != nil {
 		return nil, s.err
@@ -240,10 +322,14 @@ func videoTestRouter(stub *stubVideos) http.Handler {
 
 	r.With(middleware.Authenticate(cfg)).Post("/videos", handler.Create)
 	r.With(middleware.OptionalAuthenticate(cfg)).Get("/videos/{videoID}", handler.Get)
+	r.With(middleware.OptionalAuthenticate(cfg)).Get("/videos/{videoID}/playback", handler.Playback)
+	r.With(middleware.OptionalAuthenticate(cfg)).Get("/videos/slug/{slug}/playback", handler.PlaybackBySlug)
 	r.With(middleware.Authenticate(cfg)).Patch("/videos/{videoID}", handler.Update)
 	r.With(middleware.Authenticate(cfg)).Post("/videos/{videoID}/publish", handler.Publish)
 	r.With(middleware.OptionalAuthenticate(cfg)).Get("/videos", handler.List)
 	r.Post("/internal/videos/{videoID}/status", handler.SetMediaStatus)
+	r.Post("/internal/media-assets/{mediaAssetID}/status", handler.SetMediaStatusByAsset)
+	r.Post("/internal/videos/{videoID}/moderation", handler.SetModeration)
 	r.Post("/internal/videos/{videoID}/view", handler.RecordView)
 
 	return r

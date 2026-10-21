@@ -16,8 +16,16 @@ type Config struct {
 	Internal InternalConfig
 	Storage  StorageConfig
 	Engine   EngineConfig
+	Content  ContentConfig
 	Upload   UploadConfig
 	Worker   WorkerConfig
+}
+
+// ContentConfig points at content-service's internal status callback.
+// Empty URL disables notifications (standalone pipeline use).
+type ContentConfig struct {
+	URL           string
+	InternalToken string
 }
 
 type DatabaseConfig struct {
@@ -137,6 +145,20 @@ func Load() (Config, error) {
 			CallbackURL: getEnv(
 				"VIDEO_SERVICE_CALLBACK_URL",
 				"http://localhost:8085/internal/v1/videos/processing/callback",
+			),
+		},
+
+		Content: ContentConfig{
+			URL: getEnv(
+				"CONTENT_SERVICE_URL",
+				"http://localhost:8084",
+			),
+			// content-service authenticates internal calls with
+			// INTERNAL_API_KEY; in every environment it carries the
+			// same private secret as INTERNAL_SERVICE_TOKEN.
+			InternalToken: getEnv(
+				"CONTENT_SERVICE_INTERNAL_TOKEN",
+				os.Getenv("INTERNAL_SERVICE_TOKEN"),
 			),
 		},
 

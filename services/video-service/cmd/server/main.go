@@ -13,6 +13,7 @@ import (
 
 	"github.com/Anshul563/edvance-project/services/video-service/internal/client"
 	"github.com/Anshul563/edvance-project/services/video-service/internal/config"
+	"github.com/Anshul563/edvance-project/services/video-service/internal/contentclient"
 	"github.com/Anshul563/edvance-project/services/video-service/internal/handler"
 	"github.com/Anshul563/edvance-project/services/video-service/internal/repository"
 	"github.com/Anshul563/edvance-project/services/video-service/internal/router"
@@ -104,6 +105,15 @@ func main() {
 		logger,
 	)
 
+	// content-service owns the user-facing video row. Progress is
+	// announced best-effort; an outage never fails the pipeline.
+	statusNotifier := contentclient.New(
+		cfg.Content.URL,
+		cfg.Content.InternalToken,
+	)
+
+	mediaService.SetStatusNotifier(statusNotifier)
+
 	worker := service.NewProcessingWorker(
 		jobRepo,
 		mediaRepo,
@@ -116,6 +126,8 @@ func main() {
 		cfg.Worker.PollInterval,
 		logger,
 	)
+
+	worker.SetStatusNotifier(statusNotifier)
 
 	srv := server.New(
 		cfg,

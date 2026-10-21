@@ -45,9 +45,11 @@ func readyVideo(t *testing.T, e *env, actor Actor, title string) *model.Video {
 	if _, err := e.videoService.SetMediaStatus(
 		context.Background(),
 		video.ID,
-		string(model.VideoStatusReady),
-		intPtr(120),
-		&mediaAssetID,
+		MediaStatusUpdate{
+			Status:          string(model.VideoStatusReady),
+			DurationSeconds: intPtr(120),
+			MediaAssetID:    &mediaAssetID,
+		},
 	); err != nil {
 		t.Fatalf("set media status: %v", err)
 	}
@@ -619,9 +621,7 @@ func TestSetMediaStatusValidation(t *testing.T) {
 	if _, err := e.videoService.SetMediaStatus(
 		context.Background(),
 		video.ID,
-		"published",
-		nil,
-		nil,
+		MediaStatusUpdate{Status: "published"},
 	); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("expected ErrInvalidInput, got %v", err)
 	}
@@ -629,9 +629,11 @@ func TestSetMediaStatusValidation(t *testing.T) {
 	ready, err := e.videoService.SetMediaStatus(
 		context.Background(),
 		video.ID,
-		string(model.VideoStatusReady),
-		intPtr(90),
-		uuidPtr(uuid.New()),
+		MediaStatusUpdate{
+			Status:          string(model.VideoStatusReady),
+			DurationSeconds: intPtr(90),
+			MediaAssetID:    uuidPtr(uuid.New()),
+		},
 	)
 	if err != nil {
 		t.Fatalf("set ready: %v", err)
@@ -652,9 +654,7 @@ func TestSetMediaStatusValidation(t *testing.T) {
 	if _, err := e.videoService.SetMediaStatus(
 		context.Background(),
 		video.ID,
-		string(model.VideoStatusProcessing),
-		nil,
-		nil,
+		MediaStatusUpdate{Status: string(model.VideoStatusProcessing)},
 	); !errors.Is(err, ErrInvalidStatus) {
 		t.Fatalf("expected ErrInvalidStatus on published row, got %v", err)
 	}
@@ -668,9 +668,10 @@ func TestSetMediaStatusReadyRequiresMediaAsset(t *testing.T) {
 	if _, err := e.videoService.SetMediaStatus(
 		context.Background(),
 		video.ID,
-		string(model.VideoStatusReady),
-		intPtr(90),
-		nil,
+		MediaStatusUpdate{
+			Status:          string(model.VideoStatusReady),
+			DurationSeconds: intPtr(90),
+		},
 	); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("expected ErrInvalidInput, got %v", err)
 	}

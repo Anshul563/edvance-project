@@ -70,6 +70,9 @@ func registerContentRoutes(r chi.Router, handlers Handlers, options Options) {
 		r.Use(options.Optional)
 
 		r.Get("/videos", handlers.Video.List)
+		r.Get("/videos/slug/{slug}", handlers.Video.GetBySlug)
+		r.Get("/videos/slug/{slug}/playback", handlers.Video.PlaybackBySlug)
+		r.Get("/videos/{videoID}/playback", handlers.Video.Playback)
 		r.Get("/videos/{videoID}", handlers.Video.Get)
 		r.Get("/creators/{creatorID}/videos", handlers.Video.ListByCreator)
 
@@ -124,6 +127,8 @@ func registerInternalRoutes(r chi.Router, handlers Handlers, options Options) {
 		r.Use(options.Internal)
 
 		r.Post("/videos/{videoID}/status", handlers.Video.SetMediaStatus)
+		r.Post("/media-assets/{mediaAssetID}/status", handlers.Video.SetMediaStatusByAsset)
+		r.Post("/videos/{videoID}/moderation", handlers.Video.SetModeration)
 		r.Post("/videos/{videoID}/view", handlers.Video.RecordView)
 		r.Post("/videos/{videoID}/counters", handlers.Video.AdjustCounters)
 

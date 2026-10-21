@@ -83,9 +83,11 @@ func (h *testHarness) newAssetMIME(
 	t.Helper()
 
 	created, err := h.service.InitiateUpload(context.Background(), ownerID, InitUploadParams{
-		Filename:  filename,
-		MIMEType:  mime,
-		SizeBytes: 1234,
+		Filename:             filename,
+		MIMEType:             mime,
+		SizeBytes:            1234,
+		EducationalConfirmed: true,
+		RightsConfirmed:      true,
 	})
 	if err != nil {
 		t.Fatalf("initiate: %v", err)
@@ -116,9 +118,11 @@ func TestInitiateUploadCreatesUploadingAssetAndPresignedURL(t *testing.T) {
 	h := newTestHarness(t)
 
 	result, err := h.service.InitiateUpload(context.Background(), ownerID, InitUploadParams{
-		Filename:  "my video.mp4",
-		MIMEType:  "video/mp4",
-		SizeBytes: 4096,
+		Filename:             "my video.mp4",
+		MIMEType:             "video/mp4",
+		SizeBytes:            4096,
+		EducationalConfirmed: true,
+		RightsConfirmed:      true,
 	})
 	if err != nil {
 		t.Fatalf("initiate: %v", err)

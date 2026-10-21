@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -37,6 +38,7 @@ type MediaService struct {
 	objectStore           storage.ObjectStorage
 	uploadConfig          config.UploadConfig
 	processingMaxAttempts int
+	notifier              StatusNotifier
 	logger                *slog.Logger
 }
 
@@ -87,6 +89,8 @@ func (s *MediaService) InitiateUpload(
 		return nil, err
 	}
 
+	now := time.Now()
+
 	asset := &model.MediaAsset{
 		ID:               uuid.New(),
 		OwnerID:          ownerID,
@@ -96,6 +100,13 @@ func (s *MediaService) InitiateUpload(
 		FileSizeBytes:    params.SizeBytes,
 		StorageKey:       storageKey(assetType, ownerID, uuid.UUID{}, ""),
 		Status:           model.AssetStatusCreated,
+	}
+
+	if assetType == model.AssetTypeVideo {
+		educational := now
+		rights := now
+		asset.EducationalConfirmedAt = &educational
+		asset.RightsConfirmedAt = &rights
 	}
 
 	asset.StorageKey = storageKey(assetType, ownerID, asset.ID, ext)
@@ -193,6 +204,13 @@ func (s *MediaService) CompleteUpload(
 	}); err != nil {
 		return nil, fmt.Errorf("enqueue transcode: %w", err)
 	}
+
+	// Tell content-service the bytes landed. The worker will announce
+	// processing, and the callback will announce ready/failed.
+	s.notifyStatus(ctx, StatusEvent{
+		MediaAssetID: uploaded.ID,
+		Status:       string(model.AssetStatusUploaded),
+	})
 
 	return s.childlessView(uploaded), nil
 }
@@ -315,6 +333,177 @@ func (s *MediaService) Delete(
 	return nil
 }
 
+// RetryProcessing re-queues a failed asset. Only the owner may retry,
+// and only from failed: retrying a ready/processing asset would create
+// duplicate engine work.
+func (s *MediaService) RetryProcessing(
+	ctx context.Context,
+	ownerID uuid.UUID,
+	mediaAssetID uuid.UUID,
+) (*AssetView, error) {
+	asset, err := s.assets.FindByID(ctx, mediaAssetID)
+	if err != nil {
+		return nil, err
+	}
+
+	if asset.OwnerID != ownerID {
+		return nil, ErrForbidden
+	}
+
+	if asset.Deleted() {
+		return nil, ErrGone
+	}
+
+	if asset.Status != model.AssetStatusFailed {
+		return nil, fmt.Errorf(
+			"%w: only failed assets can be retried (current %q)",
+			ErrNotRetryable,
+			asset.Status,
+		)
+	}
+
+	processing, err := s.assets.Transition(
+		ctx,
+		asset.ID,
+		model.AssetStatusFailed,
+		model.AssetStatusProcessing,
+	)
+	if err != nil {
+		if errors.Is(err, repository.ErrAssetConflict) {
+			return nil, ErrNotRetryable
+		}
+
+		return nil, err
+	}
+
+	if _, err := s.jobs.Create(ctx, &model.ProcessingJob{
+		MediaAssetID: asset.ID,
+		JobType:      model.JobTypeTranscode,
+		Priority:     priorityTranscode,
+		Payload: map[string]any{
+			"sourceStorageKey":   asset.StorageKey,
+			"outputPrefix":       outputPrefix(asset.StorageKey),
+			"maxDurationSeconds": s.uploadConfig.MaxVideoDurationSeconds,
+		},
+	}); err != nil {
+		// Best effort rollback to failed so the creator can retry
+		// again rather than being stuck in processing forever.
+		_, _ = s.assets.Transition(
+			ctx,
+			asset.ID,
+			model.AssetStatusProcessing,
+			model.AssetStatusFailed,
+		)
+
+		return nil, fmt.Errorf("enqueue retry: %w", err)
+	}
+
+	s.notifyStatus(ctx, StatusEvent{
+		MediaAssetID: asset.ID,
+		Status:       string(model.AssetStatusProcessing),
+	})
+
+	return s.childlessView(processing), nil
+}
+
+// PlaybackCaption is one subtitle track exposed to players.
+type PlaybackCaption struct {
+	Language  string  `json:"language"`
+	Label     string  `json:"label"`
+	Format    string  `json:"format"`
+	URL       *string `json:"url,omitempty"`
+	IsDefault bool    `json:"isDefault"`
+}
+
+// PlaybackView is the safe, player-facing projection of a ready asset.
+// Storage keys, original filenames and owner identity are deliberately
+// absent: content-service decides access, players only see playback
+// facts.
+type PlaybackView struct {
+	MediaAssetID    uuid.UUID         `json:"mediaAssetId"`
+	Status          model.AssetStatus `json:"status"`
+	DurationSeconds *int64            `json:"durationSeconds,omitempty"`
+	Width           *int              `json:"width,omitempty"`
+	Height          *int              `json:"height,omitempty"`
+	PlaybackURL     *string           `json:"playbackUrl,omitempty"`
+	ThumbnailURL    *string           `json:"thumbnailUrl,omitempty"`
+	Captions        []PlaybackCaption `json:"captions"`
+}
+
+// PlaybackInfo resolves player-facing facts for one asset. It is
+// internal-only; access control belongs to content-service, which calls
+// this after its own visibility check.
+func (s *MediaService) PlaybackInfo(
+	ctx context.Context,
+	mediaAssetID uuid.UUID,
+) (*PlaybackView, error) {
+	asset, err := s.assets.FindByID(ctx, mediaAssetID)
+	if err != nil {
+		return nil, err
+	}
+
+	if asset.Deleted() {
+		return nil, ErrGone
+	}
+
+	if asset.Status != model.AssetStatusReady {
+		return nil, fmt.Errorf(
+			"%w: current status %q",
+			ErrNotReady,
+			asset.Status,
+		)
+	}
+
+	view, err := s.assembleView(ctx, asset)
+	if err != nil {
+		return nil, err
+	}
+
+	playback := &PlaybackView{
+		MediaAssetID:    asset.ID,
+		Status:          asset.Status,
+		DurationSeconds: asset.DurationSeconds,
+		Width:           asset.Width,
+		Height:          asset.Height,
+		PlaybackURL:     asset.PlaybackURL,
+		Captions:        make([]PlaybackCaption, 0, len(view.Captions)),
+	}
+
+	if playback.PlaybackURL == nil {
+		for _, variant := range view.Variants {
+			if variant.PlaybackURL != nil {
+				playback.PlaybackURL = variant.PlaybackURL
+
+				break
+			}
+		}
+	}
+
+	for _, thumbnail := range view.Thumbnails {
+		if thumbnail.IsPrimary {
+			playback.ThumbnailURL = thumbnail.URL
+
+			break
+		}
+	}
+
+	if playback.ThumbnailURL == nil && len(view.Thumbnails) > 0 {
+		playback.ThumbnailURL = view.Thumbnails[0].URL
+	}
+
+	for _, caption := range view.Captions {
+		playback.Captions = append(playback.Captions, PlaybackCaption{
+			Language:  caption.Language,
+			Label:     caption.Label,
+			Format:    string(caption.Format),
+			URL:       caption.URL,
+			IsDefault: caption.IsDefault,
+		})
+	}
+
+	return playback, nil
+}
+
 // validateInit checks the only client-supplied data: the filename must
 // be a plain name, the MIME must map to a known asset type, and the
 // size must be within the configured ceiling.
@@ -336,6 +525,17 @@ func validateInit(params InitUploadParams) (model.AssetType, string, error) {
 
 	if params.SizeBytes <= 0 {
 		return "", "", fmt.Errorf("%w: size must be positive", ErrInvalidUpload)
+	}
+
+	// Uploading video requires an explicit attestation: the content is
+	// educational and the uploader holds the rights. Audio/image
+	// uploads (thumbnails, future audio) are not gated.
+	if assetType == model.AssetTypeVideo &&
+		(!params.EducationalConfirmed || !params.RightsConfirmed) {
+		return "", "", fmt.Errorf(
+			"%w: educationalConfirmed and rightsConfirmed must both be true",
+			ErrInvalidUpload,
+		)
 	}
 
 	ext := mimeToExt(params.MIMEType)

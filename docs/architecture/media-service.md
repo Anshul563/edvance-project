@@ -77,13 +77,16 @@ duplicate/redelivered events converge instead of corrupting state. A
 background worker can later `SELECT ... WHERE status='queued'` and call
 the existing `dispatch` path unchanged.
 
-## Video-service callback (future, NOT implemented)
+## Standalone-video pipeline (implemented in video-service)
 
-When the pipeline finishes, video-service needs the playback metadata.
-That integration is deliberately absent: no callbacks, no shared tables.
-The future shape is either a media-service→video-service internal call
-(using video-service's existing internal processing route) or an event
-the video-service consumes. Both fit without schema changes here.
+The standalone video pipeline lives in `video-service`, not here:
+`media_assets` + upload/processing jobs + renditions. It announces
+`uploaded`/`processing`/`ready`/`failed` best-effort to content-service
+(`POST /internal/media-assets/{mediaAssetID}/status`), which owns the
+user-facing video row, and exposes playback facts over
+`GET /internal/v1/videos/{mediaAssetID}/playback`. No shared tables and
+no cross-service foreign keys exist. See
+`docs/architecture/video-service.md`.
 
 ## Deliberate limitations (v1)
 

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -113,6 +114,49 @@ func (f *fakeNotifier) types() []string {
 	return types
 }
 
+// fakePlaybackClient returns a canned playback projection and records
+// the asset it was asked about.
+type fakePlaybackClient struct {
+	mu      sync.Mutex
+	byAsset map[uuid.UUID]*Playback
+	err     error
+	asked   []uuid.UUID
+}
+
+func newFakePlaybackClient() *fakePlaybackClient {
+	return &fakePlaybackClient{
+		byAsset: make(map[uuid.UUID]*Playback),
+	}
+}
+
+func (f *fakePlaybackClient) set(mediaAssetID uuid.UUID, playback *Playback) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.byAsset[mediaAssetID] = playback
+}
+
+func (f *fakePlaybackClient) Playback(
+	_ context.Context,
+	mediaAssetID uuid.UUID,
+) (*Playback, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.asked = append(f.asked, mediaAssetID)
+
+	if f.err != nil {
+		return nil, f.err
+	}
+
+	playback, ok := f.byAsset[mediaAssetID]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	return playback, nil
+}
+
 // normalizeTags converts raw tag input into the canonical tags a
 // repository row would carry, mirroring NormalizeTag usage in SQL.
 func normalizeTags(tagNames []string) []model.Tag {
@@ -198,6 +242,10 @@ type fakeVideoStore struct {
 	bySlug map[string]*model.Video
 	tags   map[uuid.UUID][]model.Tag
 
+	// categorySlugByID mirrors the categories table for discovery
+	// filters; tests seed it alongside the category store.
+	categorySlugByID map[uuid.UUID]string
+
 	// publishErr, when set, makes Publish fail exactly like the
 	// conditional UPDATE losing a race against another writer.
 	publishErr error
@@ -205,10 +253,18 @@ type fakeVideoStore struct {
 
 func newFakeVideoStore() *fakeVideoStore {
 	return &fakeVideoStore{
-		byID:   make(map[uuid.UUID]*model.Video),
-		bySlug: make(map[string]*model.Video),
-		tags:   make(map[uuid.UUID][]model.Tag),
+		byID:             make(map[uuid.UUID]*model.Video),
+		bySlug:           make(map[string]*model.Video),
+		tags:             make(map[uuid.UUID][]model.Tag),
+		categorySlugByID: make(map[uuid.UUID]string),
 	}
+}
+
+func (f *fakeVideoStore) linkCategory(id uuid.UUID, slug string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.categorySlugByID[id] = slug
 }
 
 func (f *fakeVideoStore) CreateWithTags(
@@ -338,13 +394,18 @@ func (f *fakeVideoStore) Publish(
 		return nil, repository.ErrVideoNotFound
 	}
 
-	if video.Status != model.VideoStatusReady {
+	if video.Status != model.VideoStatusReady ||
+		!video.ModerationStatus.PubliclyAllowed() {
 		return nil, repository.ErrVideoInvalidPublish
 	}
 
 	now := time.Now()
 	video.Status = model.VideoStatusPublished
-	video.Visibility = model.VideoVisibilityPublic
+
+	if video.Visibility != model.VideoVisibilityUnlisted {
+		video.Visibility = model.VideoVisibilityPublic
+	}
+
 	publishedAt := now
 	video.PublishedAt = &publishedAt
 	video.UpdatedAt = now
@@ -383,6 +444,9 @@ func (f *fakeVideoStore) UpdateMediaStatus(
 	status model.VideoStatus,
 	durationSeconds *int,
 	mediaAssetID *uuid.UUID,
+	thumbnailURL *string,
+	errorCode *string,
+	errorMessage *string,
 ) (*model.Video, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -398,8 +462,77 @@ func (f *fakeVideoStore) UpdateMediaStatus(
 	}
 
 	video.Status = status
-	video.DurationSeconds = durationSeconds
-	video.MediaAssetID = mediaAssetID
+
+	if durationSeconds != nil {
+		video.DurationSeconds = durationSeconds
+	}
+
+	if mediaAssetID != nil {
+		video.MediaAssetID = mediaAssetID
+	}
+
+	if thumbnailURL != nil {
+		video.ThumbnailURL = thumbnailURL
+	}
+
+	if status == model.VideoStatusFailed {
+		video.ProcessingErrorCode = errorCode
+		video.ProcessingErrorMessage = errorMessage
+	} else {
+		video.ProcessingErrorCode = nil
+		video.ProcessingErrorMessage = nil
+	}
+
+	video.UpdatedAt = time.Now()
+
+	return cloneVideo(video), nil
+}
+
+func (f *fakeVideoStore) FindByMediaAssetID(
+	_ context.Context,
+	mediaAssetID uuid.UUID,
+) ([]*model.Video, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	matched := []*model.Video{}
+
+	for _, video := range f.byID {
+		if video.MediaAssetID != nil && *video.MediaAssetID == mediaAssetID {
+			matched = append(matched, cloneVideo(video))
+		}
+	}
+
+	sortVideosDesc(matched)
+
+	return matched, nil
+}
+
+func (f *fakeVideoStore) SetModeration(
+	_ context.Context,
+	id uuid.UUID,
+	status model.ModerationStatus,
+	reason *string,
+) (*model.Video, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	video, ok := f.byID[id]
+	if !ok {
+		return nil, repository.ErrVideoNotFound
+	}
+
+	video.ModerationStatus = status
+	video.ModerationReason = reason
+
+	if (status == model.ModerationRejected ||
+		status == model.ModerationHeld) &&
+		video.Status == model.VideoStatusPublished {
+		video.Status = model.VideoStatusReady
+		video.Visibility = model.VideoVisibilityPrivate
+		video.PublishedAt = nil
+	}
+
 	video.UpdatedAt = time.Now()
 
 	return cloneVideo(video), nil
@@ -440,7 +573,13 @@ func (f *fakeVideoStore) List(
 	matched := []*model.Video{}
 
 	for _, video := range f.byID {
-		if !videoVisible(video.CreatorID, video.Status == model.VideoStatusPublished, video.Visibility == model.VideoVisibilityPublic, filter.ViewerCreatorID) {
+		if !videoVisible(
+			video.CreatorID,
+			video.Status == model.VideoStatusPublished,
+			video.Visibility == model.VideoVisibilityPublic,
+			video.ModerationStatus.PubliclyAllowed(),
+			filter.ViewerCreatorID,
+		) {
 			continue
 		}
 
@@ -456,10 +595,50 @@ func (f *fakeVideoStore) List(
 			continue
 		}
 
+		if filter.Language != nil && video.Language != *filter.Language {
+			continue
+		}
+
+		if filter.Query != nil &&
+			!strings.Contains(
+				strings.ToLower(video.Title),
+				strings.ToLower(*filter.Query),
+			) {
+			continue
+		}
+
+		if filter.CategorySlug != nil {
+			if video.CategoryID == nil ||
+				f.categorySlugByID[*video.CategoryID] != *filter.CategorySlug {
+				continue
+			}
+		}
+
+		if filter.TagSlug != nil {
+			found := false
+
+			for _, tag := range f.tags[video.ID] {
+				if tag.Slug == *filter.TagSlug {
+					found = true
+					break
+				}
+			}
+
+			if !found {
+				continue
+			}
+		}
+
 		matched = append(matched, cloneVideo(video))
 	}
 
-	sortVideosDesc(matched)
+	if filter.Sort == "popular" {
+		sort.Slice(matched, func(i, j int) bool {
+			return matched[i].ViewCount > matched[j].ViewCount
+		})
+	} else {
+		sortVideosDesc(matched)
+	}
 
 	return pageSlice(matched, limit, offset), nil
 }
@@ -474,7 +653,13 @@ func (f *fakeVideoStore) Count(
 	var total int64
 
 	for _, video := range f.byID {
-		if !videoVisible(video.CreatorID, video.Status == model.VideoStatusPublished, video.Visibility == model.VideoVisibilityPublic, filter.ViewerCreatorID) {
+		if !videoVisible(
+			video.CreatorID,
+			video.Status == model.VideoStatusPublished,
+			video.Visibility == model.VideoVisibilityPublic,
+			video.ModerationStatus.PubliclyAllowed(),
+			filter.ViewerCreatorID,
+		) {
 			continue
 		}
 
@@ -488,6 +673,40 @@ func (f *fakeVideoStore) Count(
 
 		if filter.Visibility != nil && video.Visibility != *filter.Visibility {
 			continue
+		}
+
+		if filter.Language != nil && video.Language != *filter.Language {
+			continue
+		}
+
+		if filter.Query != nil &&
+			!strings.Contains(
+				strings.ToLower(video.Title),
+				strings.ToLower(*filter.Query),
+			) {
+			continue
+		}
+
+		if filter.CategorySlug != nil {
+			if video.CategoryID == nil ||
+				f.categorySlugByID[*video.CategoryID] != *filter.CategorySlug {
+				continue
+			}
+		}
+
+		if filter.TagSlug != nil {
+			found := false
+
+			for _, tag := range f.tags[video.ID] {
+				if tag.Slug == *filter.TagSlug {
+					found = true
+					break
+				}
+			}
+
+			if !found {
+				continue
+			}
 		}
 
 		total++
@@ -773,7 +992,7 @@ func (f *fakeShortStore) List(
 	matched := []*model.Short{}
 
 	for _, short := range f.byID {
-		if videoVisible(short.CreatorID, short.Status == model.ShortStatusPublished, short.Visibility == model.ShortVisibilityPublic, filter.ViewerCreatorID) &&
+		if videoVisible(short.CreatorID, short.Status == model.ShortStatusPublished, short.Visibility == model.ShortVisibilityPublic, true, filter.ViewerCreatorID) &&
 			uuidPointed(filter.CreatorID, short.CreatorID) {
 			matched = append(matched, cloneShort(short))
 		}
@@ -800,7 +1019,7 @@ func (f *fakeShortStore) Count(
 	var total int64
 
 	for _, short := range f.byID {
-		if !videoVisible(short.CreatorID, short.Status == model.ShortStatusPublished, short.Visibility == model.ShortVisibilityPublic, filter.ViewerCreatorID) {
+		if !videoVisible(short.CreatorID, short.Status == model.ShortStatusPublished, short.Visibility == model.ShortVisibilityPublic, true, filter.ViewerCreatorID) {
 			continue
 		}
 
@@ -1014,7 +1233,7 @@ func (f *fakePostStore) List(
 	matched := []*model.Post{}
 
 	for _, post := range f.byID {
-		if videoVisible(post.CreatorID, post.Status == model.PostStatusPublished, post.Visibility == model.PostVisibilityPublic, filter.ViewerCreatorID) &&
+		if videoVisible(post.CreatorID, post.Status == model.PostStatusPublished, post.Visibility == model.PostVisibilityPublic, true, filter.ViewerCreatorID) &&
 			uuidPointed(filter.CreatorID, post.CreatorID) {
 			matched = append(matched, clonePost(post))
 		}
@@ -1041,7 +1260,7 @@ func (f *fakePostStore) Count(
 	var total int64
 
 	for _, post := range f.byID {
-		if !videoVisible(post.CreatorID, post.Status == model.PostStatusPublished, post.Visibility == model.PostVisibilityPublic, filter.ViewerCreatorID) {
+		if !videoVisible(post.CreatorID, post.Status == model.PostStatusPublished, post.Visibility == model.PostVisibilityPublic, true, filter.ViewerCreatorID) {
 			continue
 		}
 
@@ -1239,9 +1458,10 @@ func videoVisible(
 	creatorID uuid.UUID,
 	published bool,
 	public bool,
+	approved bool,
 	viewerCreatorID *uuid.UUID,
 ) bool {
-	if published && public {
+	if published && public && approved {
 		return true
 	}
 
@@ -1287,6 +1507,7 @@ type env struct {
 	posts      *fakePostStore
 	tags       *fakeTagStore
 	categories *fakeCategoryStore
+	playback   *fakePlaybackClient
 
 	videoService    *VideoService
 	shortService    *ShortService
@@ -1317,12 +1538,20 @@ func newEnv() *env {
 		posts:      newFakePostStore(),
 		tags:       newFakeTagStore(),
 		categories: newFakeCategoryStore(),
+		playback:   newFakePlaybackClient(),
 		userID:     userID,
 		creatorID:  creatorID,
 		actor:      Actor{UserID: userID, AccessToken: "test-token"},
 	}
 
-	e.videoService = NewVideoService(e.videos, resolver, events, limits)
+	e.videoService = NewVideoService(
+		e.videos,
+		resolver,
+		e.categories,
+		e.playback,
+		events,
+		limits,
+	)
 	e.shortService = NewShortService(e.shorts, resolver, events, limits)
 	e.postService = NewPostService(e.posts, resolver, events, limits)
 	e.tagService = NewTagService(e.tags, limits)

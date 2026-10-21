@@ -75,6 +75,14 @@ func mapServiceError(err error) (int, apiError) {
 			Message: err.Error(),
 		}
 
+	case errors.Is(err, service.ErrMediaUnavailable):
+		slog.Error("video-service unavailable during playback lookup", "error", err)
+
+		return http.StatusServiceUnavailable, apiError{
+			Code:    "MEDIA_UNAVAILABLE",
+			Message: "playback is temporarily unavailable",
+		}
+
 	case errors.Is(err, service.ErrCreatorUnavailable):
 		// Ownership could not be established. Log the cause server-side
 		// and answer with a generic 500.

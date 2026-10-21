@@ -2,10 +2,16 @@ package service
 
 // InitUploadParams is the only client-controlled input in the upload
 // pipeline. Everything else (keys, statuses, URLs) is derived server-side.
+//
+// EducationalConfirmed and RightsConfirmed are attestations, not
+// metadata: video uploads are rejected unless both are true, and the
+// timestamps are stored on the asset for auditability.
 type InitUploadParams struct {
-	Filename  string `json:"filename"`
-	MIMEType  string `json:"mimeType"`
-	SizeBytes int64  `json:"size"`
+	Filename             string `json:"filename"`
+	MIMEType             string `json:"mimeType"`
+	SizeBytes            int64  `json:"size"`
+	EducationalConfirmed bool   `json:"educationalConfirmed"`
+	RightsConfirmed      bool   `json:"rightsConfirmed"`
 }
 
 // InitUploadResult hands the client a presigned PUT URL. The signed
