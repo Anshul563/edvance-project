@@ -287,6 +287,7 @@ services:
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev-local-jwt-secret}
       JWT_ISSUER: ${JWT_ISSUER:-edvance-auth}
       JWT_AUDIENCE: ${JWT_AUDIENCE:-edvance-api}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-local-service-token}
     ports:
       - "8086:8086"
     depends_on:
@@ -314,6 +315,7 @@ services:
       JWT_ISSUER: ${JWT_ISSUER:-edvance-auth}
       JWT_AUDIENCE: ${JWT_AUDIENCE:-edvance-api}
       COURSE_SERVICE_URL: "http://course-service:8086"
+      COURSE_SERVICE_INTERNAL_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-local-service-token}
       LEARNING_SERVICE_INTERNAL_TOKEN: ${LEARNING_SERVICE_INTERNAL_TOKEN:-dev-local-learning-token}
     ports:
       - "8087:8087"

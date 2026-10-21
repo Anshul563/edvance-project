@@ -23,6 +23,7 @@ import {
   Add02Icon,
   LiveStreaming02Icon,
   Video01Icon,
+  UserCircleIcon,
 } from "@hugeicons/core-free-icons"
 import { cn } from "@/lib/utils"
 import { initialsOf, useSessionUser } from "@/hooks/use-session-user"
@@ -36,6 +37,7 @@ type NavItem = {
 
 export const navItems: NavItem[] = [
   { href: "/creator", label: "Overview", icon: LayoutIcon, exact: true },
+  { href: "/creator/channel", label: "Manage Channel", icon: UserCircleIcon },
   { href: "/creator/courses", label: "My Courses", icon: Book01Icon },
   { href: "/creator/create", label: "Create Course", icon: Add02Icon },
   { href: "/creator/live", label: "Live Studio", icon: LiveStreaming02Icon },

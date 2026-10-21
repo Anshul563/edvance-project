@@ -17,6 +17,7 @@ type creatorService interface {
 	OnboardCreator(ctx context.Context, userID uuid.UUID, input service.OnboardInput) (*service.CreatorProfile, error)
 	GetMyCreator(ctx context.Context, userID uuid.UUID) (*service.CreatorProfile, error)
 	GetCreatorByHandle(ctx context.Context, handle string) (*service.CreatorProfile, error)
+	GetCreatorByID(ctx context.Context, creatorID uuid.UUID) (*service.CreatorProfile, error)
 	UpdateCreator(ctx context.Context, userID uuid.UUID, input service.UpdateCreatorInput) (*service.CreatorProfile, error)
 }
 
@@ -205,18 +206,49 @@ func (h *CreatorHandler) ByHandle(
 		return
 	}
 
-	writeJSON(
-		w,
-		http.StatusOK,
-		publicCreatorResponse{
-			Handle:      profile.Channel.Handle,
-			Name:        profile.Channel.Name,
-			Description: profile.Channel.Description,
-			AvatarURL:   profile.Channel.AvatarURL,
-			BannerURL:   profile.Channel.BannerURL,
-			Status:      string(profile.Creator.Status),
-		},
-	)
+	writeJSON(w, http.StatusOK, toPublicCreatorResponse(profile))
+}
+
+// ByID returns the public creator profile addressed by creator ID.
+// Content records store creator IDs, so clients need this lookup to
+// render channel names and handles without knowing the handle first.
+// Suspended/disabled creators read as not found.
+func (h *CreatorHandler) ByID(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	creatorID, err := uuid.Parse(chi.URLParam(r, "creatorID"))
+	if err != nil {
+		writeJSON(
+			w,
+			http.StatusBadRequest,
+			map[string]string{
+				"error": "invalid creator id",
+			},
+		)
+		return
+	}
+
+	profile, err := h.creators.GetCreatorByID(r.Context(), creatorID)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, toPublicCreatorResponse(profile))
+}
+
+func toPublicCreatorResponse(
+	profile *service.CreatorProfile,
+) publicCreatorResponse {
+	return publicCreatorResponse{
+		Handle:      profile.Channel.Handle,
+		Name:        profile.Channel.Name,
+		Description: profile.Channel.Description,
+		AvatarURL:   profile.Channel.AvatarURL,
+		BannerURL:   profile.Channel.BannerURL,
+		Status:      string(profile.Creator.Status),
+	}
 }
 
 func toMyCreatorResponse(profile *service.CreatorProfile) myCreatorResponse {

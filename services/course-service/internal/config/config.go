@@ -10,8 +10,9 @@ type Config struct {
 	AppEnv string
 	Port   int
 
-	Database DatabaseConfig
-	JWT      JWTConfig
+	Database         DatabaseConfig
+	JWT              JWTConfig
+	Internal         InternalConfig
 	SearchServiceURL string
 }
 
@@ -23,6 +24,10 @@ type JWTConfig struct {
 	AccessSecret string
 	Issuer       string
 	Audience     string
+}
+
+type InternalConfig struct {
+	APIKey string
 }
 
 func Load() (Config, error) {
@@ -52,6 +57,10 @@ func Load() (Config, error) {
 			AccessSecret: os.Getenv("JWT_ACCESS_SECRET"),
 			Issuer:       getEnv("JWT_ISSUER", "edvance-auth"),
 			Audience:     getEnv("JWT_AUDIENCE", "edvance-api"),
+		},
+
+		Internal: InternalConfig{
+			APIKey: os.Getenv("INTERNAL_SERVICE_TOKEN"),
 		},
 
 		SearchServiceURL: getEnv("SEARCH_SERVICE_URL", ""),

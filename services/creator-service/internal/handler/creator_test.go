@@ -26,10 +26,11 @@ const (
 
 // stubCreators implements creatorService with canned results.
 type stubCreators struct {
-	profile   *service.CreatorProfile
-	err       error
-	gotUserID uuid.UUID
-	gotHandle string
+	profile      *service.CreatorProfile
+	err          error
+	gotUserID    uuid.UUID
+	gotHandle    string
+	gotCreatorID uuid.UUID
 }
 
 func testProfile(userID uuid.UUID, handle string) *service.CreatorProfile {
@@ -85,6 +86,19 @@ func (s *stubCreators) GetCreatorByHandle(
 	handle string,
 ) (*service.CreatorProfile, error) {
 	s.gotHandle = handle
+
+	if s.err != nil {
+		return nil, s.err
+	}
+
+	return s.profile, nil
+}
+
+func (s *stubCreators) GetCreatorByID(
+	_ context.Context,
+	creatorID uuid.UUID,
+) (*service.CreatorProfile, error) {
+	s.gotCreatorID = creatorID
 
 	if s.err != nil {
 		return nil, s.err
@@ -149,6 +163,7 @@ func testRouter(stub *stubCreators) http.Handler {
 	r.With(testMiddleware()).Post("/onboard", h.Onboard)
 	r.With(testMiddleware()).Get("/me", h.Me)
 	r.With(testMiddleware()).Patch("/me", h.UpdateMe)
+	r.Get("/id/{creatorID}", h.ByID)
 	r.Get("/{handle}", h.ByHandle)
 
 	return r
@@ -253,6 +268,45 @@ func TestPublicByHandleNeedsNoAuth(t *testing.T) {
 		if strings.Contains(lowered, `"`+leaked+`"`) {
 			t.Fatalf("public response leaks %q: %s", leaked, body)
 		}
+	}
+}
+
+func TestPublicByIDNeedsNoAuth(t *testing.T) {
+	creatorID := uuid.New()
+	stub := &stubCreators{profile: testProfile(uuid.New(), "anshulbuilds")}
+
+	req := httptest.NewRequest(http.MethodGet, "/id/"+creatorID.String(), nil)
+	rec := httptest.NewRecorder()
+
+	testRouter(stub).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	if stub.gotCreatorID != creatorID {
+		t.Fatalf("expected creator id %s, got %s", creatorID, stub.gotCreatorID)
+	}
+
+	body := rec.Body.String()
+
+	for _, want := range []string{`"handle":"anshulbuilds"`, `"name":"Test Channel"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("expected %s in %s", want, body)
+		}
+	}
+}
+
+func TestPublicByIDRejectsMalformedID(t *testing.T) {
+	stub := &stubCreators{profile: testProfile(uuid.New(), "anshulbuilds")}
+
+	req := httptest.NewRequest(http.MethodGet, "/id/not-a-uuid", nil)
+	rec := httptest.NewRecorder()
+
+	testRouter(stub).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rec.Code)
 	}
 }
 

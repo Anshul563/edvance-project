@@ -12,6 +12,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 
+	"github.com/Anshul563/edvance-project/services/learning-service/internal/course"
 	"github.com/Anshul563/edvance-project/services/learning-service/internal/middleware"
 	"github.com/Anshul563/edvance-project/services/learning-service/internal/model"
 	"github.com/Anshul563/edvance-project/services/learning-service/internal/service"
@@ -195,6 +196,18 @@ func (s *stubLearning) CourseProgress(
 	}
 
 	return s.progress, nil
+}
+
+func (s *stubLearning) Curriculum(
+	_ context.Context,
+	_ uuid.UUID,
+	_ uuid.UUID,
+) (*course.CourseStructure, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+
+	return nil, nil
 }
 
 func (s *stubLearning) Dashboard(

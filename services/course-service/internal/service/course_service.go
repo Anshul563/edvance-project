@@ -597,7 +597,32 @@ func (s *CourseService) GetStructure(
 		return nil, err
 	}
 
-	sections, err := s.sections.ListSectionsByCourse(ctx, courseID)
+	return s.buildStructure(ctx, course, owner, !owner)
+}
+
+// GetInternalStructure returns the complete curriculum, including
+// content pointers that public viewers never receive. It is reserved
+// for trusted service-to-service callers (learning-service) that have
+// already verified entitlement, such as an active enrollment.
+func (s *CourseService) GetInternalStructure(
+	ctx context.Context,
+	courseID uuid.UUID,
+) (*CourseStructure, error) {
+	course, err := s.courses.FindCourseByID(ctx, courseID)
+	if err != nil {
+		return nil, mapRepoError(err)
+	}
+
+	return s.buildStructure(ctx, course, false, false)
+}
+
+func (s *CourseService) buildStructure(
+	ctx context.Context,
+	course *model.Course,
+	owner bool,
+	redact bool,
+) (*CourseStructure, error) {
+	sections, err := s.sections.ListSectionsByCourse(ctx, course.ID)
 	if err != nil {
 		return nil, fmt.Errorf("list sections: %w", err)
 	}
@@ -614,7 +639,7 @@ func (s *CourseService) GetStructure(
 			return nil, fmt.Errorf("list lessons: %w", err)
 		}
 
-		if !owner {
+		if redact {
 			lessons = redactLessons(lessons)
 		}
 

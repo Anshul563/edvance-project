@@ -23,21 +23,28 @@ var ErrCourseUnavailable = errors.New("course service unavailable")
 // HTTPClient reads course-service over HTTP with short control-plane
 // timeouts. It performs reads only — never writes.
 type HTTPClient struct {
-	baseURL string
-	client  *http.Client
+	baseURL     string
+	internalKey string
+	client      *http.Client
 }
 
-func NewHTTPClient(baseURL string, timeout time.Duration) *HTTPClient {
+func NewHTTPClient(baseURL string, timeout time.Duration, internalKey ...string) *HTTPClient {
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
 
-	return &HTTPClient{
+	client := &HTTPClient{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		client: &http.Client{
 			Timeout: timeout,
 		},
 	}
+
+	if len(internalKey) > 0 {
+		client.internalKey = internalKey[0]
+	}
+
+	return client
 }
 
 type courseResponse struct {
@@ -63,11 +70,14 @@ type structureSectionFields struct {
 }
 
 type structureLessonFields struct {
-	ID        string `json:"id"`
-	Title     string `json:"title"`
-	Type      string `json:"type"`
-	Position  int32  `json:"position"`
-	IsPreview bool   `json:"isPreview"`
+	ID              string  `json:"id"`
+	Title           string  `json:"title"`
+	Description     *string `json:"description"`
+	Type            string  `json:"type"`
+	ContentID       *string `json:"contentId"`
+	Position        int32   `json:"position"`
+	IsPreview       bool    `json:"isPreview"`
+	DurationSeconds *int64  `json:"durationSeconds"`
 }
 
 func (c *HTTPClient) GetCourse(
@@ -101,6 +111,37 @@ func (c *HTTPClient) GetCourseStructure(
 		return nil, err
 	}
 
+	return toStructure(parsed)
+}
+
+// GetCourseContent reads the unredacted curriculum from the
+// course-service internal API. Callers must verify entitlement first;
+// the internal key only authenticates the service, not the learner.
+func (c *HTTPClient) GetCourseContent(
+	ctx context.Context,
+	courseID uuid.UUID,
+) (*CourseStructure, error) {
+	var parsed structureResponse
+
+	headers := map[string]string{}
+
+	if c.internalKey != "" {
+		headers["X-Internal-Key"] = c.internalKey
+	}
+
+	if err := c.getWithHeaders(
+		ctx,
+		"/internal/courses/"+courseID.String()+"/structure",
+		headers,
+		&parsed,
+	); err != nil {
+		return nil, err
+	}
+
+	return toStructure(parsed)
+}
+
+func toStructure(parsed structureResponse) (*CourseStructure, error) {
 	course, err := toCourse(parsed.Course)
 	if err != nil {
 		return nil, err
@@ -130,12 +171,25 @@ func (c *HTTPClient) GetCourseStructure(
 				return nil, ErrCourseUnavailable
 			}
 
+			var contentID *uuid.UUID
+
+			if lesson.ContentID != nil && *lesson.ContentID != "" {
+				parsedContentID, err := uuid.Parse(*lesson.ContentID)
+				if err != nil {
+					return nil, ErrCourseUnavailable
+				}
+				contentID = &parsedContentID
+			}
+
 			entry.Lessons = append(entry.Lessons, StructureLesson{
-				ID:        lessonID,
-				Title:     lesson.Title,
-				Type:      lesson.Type,
-				Position:  lesson.Position,
-				IsPreview: lesson.IsPreview,
+				ID:              lessonID,
+				Title:           lesson.Title,
+				Description:     lesson.Description,
+				Type:            lesson.Type,
+				ContentID:       contentID,
+				Position:        lesson.Position,
+				IsPreview:       lesson.IsPreview,
+				DurationSeconds: lesson.DurationSeconds,
 			})
 		}
 
@@ -150,6 +204,15 @@ func (c *HTTPClient) get(
 	path string,
 	out any,
 ) error {
+	return c.getWithHeaders(ctx, path, nil, out)
+}
+
+func (c *HTTPClient) getWithHeaders(
+	ctx context.Context,
+	path string,
+	headers map[string]string,
+	out any,
+) error {
 	request, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodGet,
@@ -158,6 +221,10 @@ func (c *HTTPClient) get(
 	)
 	if err != nil {
 		return ErrCourseUnavailable
+	}
+
+	for name, value := range headers {
+		request.Header.Set(name, value)
 	}
 
 	response, err := c.client.Do(request)

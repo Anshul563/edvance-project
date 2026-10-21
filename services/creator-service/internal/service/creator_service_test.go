@@ -362,6 +362,41 @@ func TestGetMyCreator(t *testing.T) {
 	}
 }
 
+func TestGetCreatorByIDVisibility(t *testing.T) {
+	fx := newFixture()
+	userID := uuid.New()
+
+	mine := onboardThroughService(t, fx, userID, "visible_handle")
+
+	found, err := fx.service.GetCreatorByID(context.Background(), mine.Creator.ID)
+	if err != nil {
+		t.Fatalf("public lookup: %v", err)
+	}
+
+	if found.Channel.Handle != "visible_handle" {
+		t.Fatalf("wrong creator returned: %s", found.Channel.Handle)
+	}
+
+	if _, err := fx.service.GetCreatorByID(
+		context.Background(),
+		uuid.New(),
+	); !errors.Is(err, ErrCreatorNotFound) {
+		t.Fatalf("expected not-found, got %v", err)
+	}
+
+	fx.creators.mu.Lock()
+	stored := fx.creators.byID[mine.Creator.ID]
+	stored.Status = model.CreatorStatusSuspended
+	fx.creators.mu.Unlock()
+
+	if _, err := fx.service.GetCreatorByID(
+		context.Background(),
+		mine.Creator.ID,
+	); !errors.Is(err, ErrCreatorNotFound) {
+		t.Fatalf("expected suspended to read as not-found, got %v", err)
+	}
+}
+
 func TestGetCreatorByHandleVisibility(t *testing.T) {
 	fx := newFixture()
 	userID := uuid.New()

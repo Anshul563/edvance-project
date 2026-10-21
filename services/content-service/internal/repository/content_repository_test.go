@@ -65,11 +65,13 @@ func cleanupCreator(t *testing.T, pool *pgxpool.Pool, creatorID uuid.UUID) {
 
 func testVideo(creatorID uuid.UUID, slug string) *model.Video {
 	return &model.Video{
-		CreatorID:  creatorID,
-		Title:      "Integration Video",
-		Slug:       slug,
-		Visibility: model.VideoVisibilityPrivate,
-		Status:     model.VideoStatusDraft,
+		CreatorID:        creatorID,
+		Title:            "Integration Video",
+		Slug:             slug,
+		Language:         "en",
+		Visibility:       model.VideoVisibilityPrivate,
+		Status:           model.VideoStatusDraft,
+		ModerationStatus: model.ModerationApproved,
 	}
 }
 
@@ -140,6 +142,9 @@ func TestVideoLifecycleIntegration(t *testing.T) {
 		model.VideoStatusReady,
 		intPtr(60),
 		uuidPtr(uuid.New()),
+		nil,
+		nil,
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("set media status: %v", err)
@@ -169,6 +174,9 @@ func TestVideoLifecycleIntegration(t *testing.T) {
 		ctx,
 		video.ID,
 		model.VideoStatusProcessing,
+		nil,
+		nil,
+		nil,
 		nil,
 		nil,
 	); !errors.Is(err, ErrVideoInvalidStatus) {
@@ -247,6 +255,9 @@ func TestVideoListScopingIntegration(t *testing.T) {
 		model.VideoStatusReady,
 		nil,
 		uuidPtr(uuid.New()),
+		nil,
+		nil,
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("set ready: %v", err)
@@ -270,6 +281,9 @@ func TestVideoListScopingIntegration(t *testing.T) {
 		model.VideoStatusReady,
 		nil,
 		uuidPtr(uuid.New()),
+		nil,
+		nil,
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("set other ready: %v", err)

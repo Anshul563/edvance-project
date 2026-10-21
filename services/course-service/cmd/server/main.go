@@ -95,10 +95,11 @@ func main() {
 	srv := server.New(
 		cfg,
 		router.Handlers{
-			Health:  handler.NewHealthHandler(db),
-			Course:  handler.NewCourseHandler(courseService),
-			Section: handler.NewSectionHandler(sectionService),
-			Lesson:  handler.NewLessonHandler(lessonService),
+			Health:   handler.NewHealthHandler(db),
+			Course:   handler.NewCourseHandler(courseService),
+			Section:  handler.NewSectionHandler(sectionService),
+			Lesson:   handler.NewLessonHandler(lessonService),
+			Internal: handler.NewInternalCourseHandler(courseService),
 		},
 	)
 

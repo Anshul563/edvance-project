@@ -10,15 +10,17 @@ import (
 )
 
 type Handlers struct {
-	Health  *handler.HealthHandler
-	Course  *handler.CourseHandler
-	Section *handler.SectionHandler
-	Lesson  *handler.LessonHandler
+	Health   *handler.HealthHandler
+	Course   *handler.CourseHandler
+	Section  *handler.SectionHandler
+	Lesson   *handler.LessonHandler
+	Internal *handler.InternalCourseHandler
 }
 
 type Middleware struct {
 	Auth         func(http.Handler) http.Handler
 	OptionalAuth func(http.Handler) http.Handler
+	Internal     func(http.Handler) http.Handler
 }
 
 func New(
@@ -80,6 +82,15 @@ func New(
 		r.With(mw.Auth).Delete("/{lessonID}", handlers.Lesson.Delete)
 	})
 
+	// Trusted service-to-service reads. Key-guarded, never JWT-authed,
+	// never proxied by the gateway.
+	r.Route("/internal", func(r chi.Router) {
+		r.With(mw.Internal).Get(
+			"/courses/{courseID}/structure",
+			handlers.Internal.Structure,
+		)
+	})
+
 	return r
 }
 
@@ -88,6 +99,7 @@ func NewMiddleware(
 	secret string,
 	issuer string,
 	audience string,
+	internalKey string,
 ) Middleware {
 	cfg := middleware.AuthConfig{
 		AccessSecret: secret,
@@ -98,5 +110,6 @@ func NewMiddleware(
 	return Middleware{
 		Auth:         middleware.Authenticate(cfg),
 		OptionalAuth: middleware.OptionalAuthenticate(cfg),
+		Internal:     middleware.InternalOnly(internalKey),
 	}
 }

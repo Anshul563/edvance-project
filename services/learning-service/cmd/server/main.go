@@ -69,6 +69,7 @@ func main() {
 	courseClient := course.NewHTTPClient(
 		cfg.Course.BaseURL,
 		cfg.Course.RequestTimeout,
+		cfg.Course.InternalToken,
 	)
 
 	enrollmentRepository := repository.NewEnrollmentRepository(db)

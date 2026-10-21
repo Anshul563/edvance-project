@@ -13,4 +13,5 @@ import (
 type Client interface {
 	GetCourse(ctx context.Context, courseID uuid.UUID) (*Course, error)
 	GetCourseStructure(ctx context.Context, courseID uuid.UUID) (*CourseStructure, error)
+	GetCourseContent(ctx context.Context, courseID uuid.UUID) (*CourseStructure, error)
 }

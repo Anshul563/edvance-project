@@ -465,43 +465,120 @@ func (s *MediaService) PlaybackInfo(
 		DurationSeconds: asset.DurationSeconds,
 		Width:           asset.Width,
 		Height:          asset.Height,
-		PlaybackURL:     asset.PlaybackURL,
+		PlaybackURL:     s.playbackURL(ctx, asset, view.Variants),
+		ThumbnailURL:    s.thumbnailURL(ctx, view.Thumbnails),
 		Captions:        make([]PlaybackCaption, 0, len(view.Captions)),
 	}
 
-	if playback.PlaybackURL == nil {
-		for _, variant := range view.Variants {
-			if variant.PlaybackURL != nil {
-				playback.PlaybackURL = variant.PlaybackURL
+	for _, caption := range view.Captions {
+		url := caption.URL
 
-				break
+		if caption.StorageKey != "" {
+			if fresh := s.objectStoreURL(ctx, caption.StorageKey); fresh != "" {
+				url = &fresh
 			}
 		}
-	}
 
-	for _, thumbnail := range view.Thumbnails {
-		if thumbnail.IsPrimary {
-			playback.ThumbnailURL = thumbnail.URL
-
-			break
-		}
-	}
-
-	if playback.ThumbnailURL == nil && len(view.Thumbnails) > 0 {
-		playback.ThumbnailURL = view.Thumbnails[0].URL
-	}
-
-	for _, caption := range view.Captions {
 		playback.Captions = append(playback.Captions, PlaybackCaption{
 			Language:  caption.Language,
 			Label:     caption.Label,
 			Format:    string(caption.Format),
-			URL:       caption.URL,
+			URL:       url,
 			IsDefault: caption.IsDefault,
 		})
 	}
 
 	return playback, nil
+}
+
+// playbackURL re-signs object URLs on every read. Stored URLs are
+// snapshots from processing time and, for private buckets, expire long
+// before the asset does.
+func (s *MediaService) playbackURL(
+	ctx context.Context,
+	asset *model.MediaAsset,
+	variants []VariantView,
+) *string {
+	var (
+		chosen    *string
+		bestWidth = -1
+	)
+
+	for _, variant := range variants {
+		if variant.StorageKey == "" {
+			continue
+		}
+
+		// Engines without object-store access (the local mock
+		// engine) report output keys they never wrote. Skipping
+		// missing objects keeps playback on the uploaded source.
+		if exists, err := s.objectStore.Exists(ctx, variant.StorageKey); err != nil || !exists {
+			continue
+		}
+
+		fresh := s.objectStoreURL(ctx, variant.StorageKey)
+		if fresh == "" {
+			continue
+		}
+
+		if chosen == nil || variant.Width > bestWidth {
+			value := fresh
+			chosen = &value
+			bestWidth = variant.Width
+		}
+	}
+
+	if chosen != nil {
+		return chosen
+	}
+
+	if asset.StorageKey != "" {
+		if fresh := s.objectStoreURL(ctx, asset.StorageKey); fresh != "" {
+			return &fresh
+		}
+	}
+
+	return asset.PlaybackURL
+}
+
+// thumbnailURL re-signs the primary thumbnail (or the first one when
+// no primary is flagged) on every read.
+func (s *MediaService) thumbnailURL(
+	ctx context.Context,
+	thumbnails []ThumbnailView,
+) *string {
+	found := false
+
+	for _, thumbnail := range thumbnails {
+		if thumbnail.IsPrimary {
+			if fresh := s.storedThumbnailURL(ctx, thumbnail); fresh != nil {
+				return fresh
+			}
+
+			found = true
+
+			break
+		}
+	}
+
+	if found || len(thumbnails) == 0 {
+		return nil
+	}
+
+	return s.storedThumbnailURL(ctx, thumbnails[0])
+}
+
+func (s *MediaService) storedThumbnailURL(
+	ctx context.Context,
+	thumbnail ThumbnailView,
+) *string {
+	if thumbnail.StorageKey != "" {
+		if fresh := s.objectStoreURL(ctx, thumbnail.StorageKey); fresh != "" {
+			return &fresh
+		}
+	}
+
+	return thumbnail.URL
 }
 
 // validateInit checks the only client-supplied data: the filename must

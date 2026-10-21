@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/Anshul563/edvance-project/services/learning-service/internal/course"
 	"github.com/Anshul563/edvance-project/services/learning-service/internal/middleware"
 	"github.com/Anshul563/edvance-project/services/learning-service/internal/service"
 )
@@ -29,6 +30,11 @@ type learningService interface {
 		page int,
 		limit int,
 	) (*service.ActivityPage, error)
+	Curriculum(
+		ctx context.Context,
+		userID uuid.UUID,
+		courseID uuid.UUID,
+	) (*course.CourseStructure, error)
 }
 
 type LearningHandler struct {
@@ -49,6 +55,97 @@ type courseProgressResponse struct {
 	LastLessonID     *string `json:"lastLessonId"`
 	LastPosition     int64   `json:"lastPositionSeconds,omitempty"`
 	LastPercent      int32   `json:"lastPercent,omitempty"`
+}
+
+type curriculumLessonResponse struct {
+	ID              string  `json:"id"`
+	Title           string  `json:"title"`
+	Description     *string `json:"description,omitempty"`
+	Type            string  `json:"type"`
+	ContentID       *string `json:"contentId,omitempty"`
+	Position        int32   `json:"position"`
+	IsPreview       bool    `json:"isPreview"`
+	DurationSeconds *int64  `json:"durationSeconds,omitempty"`
+}
+
+type curriculumSectionResponse struct {
+	ID          string                     `json:"id"`
+	Title       string                     `json:"title"`
+	Description *string                    `json:"description,omitempty"`
+	Position    int32                      `json:"position"`
+	Lessons     []curriculumLessonResponse `json:"lessons"`
+}
+
+type curriculumResponse struct {
+	CourseID string                      `json:"courseId"`
+	Sections []curriculumSectionResponse `json:"sections"`
+}
+
+// Curriculum returns the caller's enrolled curriculum with lesson
+// content pointers. Anonymous course views stay redacted.
+func (h *LearningHandler) Curriculum(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	userID, ok := middleware.GetUserID(r.Context())
+	if !ok {
+		writeUnauthorized(w)
+		return
+	}
+
+	courseID, err := uuid.Parse(chi.URLParam(r, "courseID"))
+	if err != nil {
+		writeBadRequest(w, "INVALID_COURSE", "invalid course id")
+		return
+	}
+
+	structure, err := h.learning.Curriculum(r.Context(), userID, courseID)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	sections := make([]curriculumSectionResponse, 0, len(structure.Sections))
+
+	for _, section := range structure.Sections {
+		lessons := make([]curriculumLessonResponse, 0, len(section.Lessons))
+
+		for _, lesson := range section.Lessons {
+			var contentID *string
+
+			if lesson.ContentID != nil {
+				raw := lesson.ContentID.String()
+				contentID = &raw
+			}
+
+			lessons = append(lessons, curriculumLessonResponse{
+				ID:              lesson.ID.String(),
+				Title:           lesson.Title,
+				Description:     lesson.Description,
+				Type:            lesson.Type,
+				ContentID:       contentID,
+				Position:        lesson.Position,
+				IsPreview:       lesson.IsPreview,
+				DurationSeconds: lesson.DurationSeconds,
+			})
+		}
+
+		sections = append(sections, curriculumSectionResponse{
+			ID:       section.ID.String(),
+			Title:    section.Title,
+			Position: section.Position,
+			Lessons:  lessons,
+		})
+	}
+
+	writeJSON(
+		w,
+		http.StatusOK,
+		curriculumResponse{
+			CourseID: courseID.String(),
+			Sections: sections,
+		},
+	)
 }
 
 // Progress returns live computed course progress for the caller.

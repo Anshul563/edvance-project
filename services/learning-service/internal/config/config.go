@@ -31,6 +31,7 @@ type JWTConfig struct {
 type CourseConfig struct {
 	BaseURL        string
 	RequestTimeout time.Duration
+	InternalToken  string
 }
 
 type LearningConfig struct {
@@ -87,6 +88,10 @@ func Load() (Config, error) {
 			BaseURL: getEnv(
 				"COURSE_SERVICE_URL",
 				"http://localhost:8086",
+			),
+			InternalToken: getEnv(
+				"COURSE_SERVICE_INTERNAL_TOKEN",
+				os.Getenv("INTERNAL_SERVICE_TOKEN"),
 			),
 			// Short control-plane timeout: course reads back every
 			// mutation, so a hung course-service must fail fast.

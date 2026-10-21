@@ -47,9 +47,10 @@ func registerCreatorRoutes(
 		r.Patch("/me", handlers.Creator.UpdateMe)
 	})
 
-	// Public channel lookup. Static-plus-param ordering keeps this from
+	// Public channel lookup. Static-plus-param ordering keeps these from
 	// colliding with anything above (all of which are method+auth gated
 	// differently or static).
+	r.Get("/id/{creatorID}", handlers.Creator.ByID)
 	r.Get("/{handle}", handlers.Creator.ByHandle)
 }
 

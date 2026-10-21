@@ -206,6 +206,44 @@ func TestPlaybackInfoReturnsSafeProjection(t *testing.T) {
 	}
 }
 
+func TestPlaybackInfoRefreshesStoredURL(t *testing.T) {
+	h := newTestHarness(t)
+
+	asset := h.newAsset(t, ownerID, model.AssetStatusProcessing)
+
+	job, err := h.jobs.Create(context.Background(), &model.ProcessingJob{
+		MediaAssetID: asset.ID,
+		JobType:      model.JobTypeTranscode,
+		Priority:     100,
+	})
+	if err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	if err := h.service.HandleCallback(
+		context.Background(),
+		successfulCallback(t, asset.ID, job.ID),
+	); err != nil {
+		t.Fatalf("callback: %v", err)
+	}
+
+	// Processing stores a URL snapshot; playback must re-sign instead
+	// of serving that (possibly expired) value.
+	h.storage.mu.Lock()
+	h.storage.urls[asset.StorageKey] = "https://fresh.example/source.mp4"
+	h.storage.mu.Unlock()
+
+	playback, err := h.service.PlaybackInfo(context.Background(), asset.ID)
+	if err != nil {
+		t.Fatalf("playback: %v", err)
+	}
+
+	if playback.PlaybackURL == nil ||
+		*playback.PlaybackURL != "https://fresh.example/source.mp4" {
+		t.Fatalf("playback url = %v", playback.PlaybackURL)
+	}
+}
+
 func TestPlaybackInfoRejectsUnreadyAndDeleted(t *testing.T) {
 	h := newTestHarness(t)
 

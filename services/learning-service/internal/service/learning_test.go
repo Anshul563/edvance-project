@@ -430,6 +430,13 @@ func (f *fakeCourseClient) GetCourseStructure(
 	return &cp, nil
 }
 
+func (f *fakeCourseClient) GetCourseContent(
+	ctx context.Context,
+	courseID uuid.UUID,
+) (*course.CourseStructure, error) {
+	return f.GetCourseStructure(ctx, courseID)
+}
+
 type fixture struct {
 	enrollments *EnrollmentService
 	progress    *ProgressService

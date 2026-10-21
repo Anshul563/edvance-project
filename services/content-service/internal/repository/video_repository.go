@@ -350,14 +350,14 @@ func (r *VideoRepository) UpdateMediaStatus(
 ) (*model.Video, error) {
 	query := `
 		UPDATE videos
-		SET status = $2,
+		SET status = $2::varchar,
 		    duration_seconds = COALESCE($3, duration_seconds),
 		    media_asset_id = COALESCE($4, media_asset_id),
 		    thumbnail_url = COALESCE($5, thumbnail_url),
 		    processing_error_code =
-		        CASE WHEN $2 = 'failed' THEN $6 ELSE NULL END,
+		        CASE WHEN $2::text = 'failed' THEN $6::text ELSE NULL END,
 		    processing_error_message =
-		        CASE WHEN $2 = 'failed' THEN $7 ELSE NULL END,
+		        CASE WHEN $2::text = 'failed' THEN $7::text ELSE NULL END,
 		    updated_at = NOW()
 		WHERE id = $1
 		  AND status IN (

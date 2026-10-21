@@ -225,6 +225,37 @@ func (s *CreatorService) GetCreatorByHandle(
 	}, nil
 }
 
+// GetCreatorByID returns the public creator profile addressed by
+// creator ID. It follows the same visibility rule as handle lookup:
+// suspended/disabled creators read as not found.
+func (s *CreatorService) GetCreatorByID(
+	ctx context.Context,
+	creatorID uuid.UUID,
+) (*CreatorProfile, error) {
+	creator, err := s.creators.FindByID(ctx, creatorID)
+	if err != nil {
+		if errors.Is(err, repository.ErrCreatorNotFound) {
+			return nil, ErrCreatorNotFound
+		}
+
+		return nil, fmt.Errorf("find creator: %w", err)
+	}
+
+	if creator.Status != model.CreatorStatusActive {
+		return nil, ErrCreatorNotFound
+	}
+
+	channel, err := s.channels.FindChannelByCreatorID(ctx, creator.ID)
+	if err != nil {
+		return nil, fmt.Errorf("find channel: %w", err)
+	}
+
+	return &CreatorProfile{
+		Creator: creator,
+		Channel: channel,
+	}, nil
+}
+
 type UpdateCreatorInput struct {
 	DisplayName *string
 	Headline    *string

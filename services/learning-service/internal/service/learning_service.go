@@ -56,6 +56,26 @@ func NewLearningService(
 	}, nil
 }
 
+// Curriculum returns the enrolled learner's full curriculum, including
+// content pointers that anonymous course views redact. Enrollment is
+// verified locally before the internal course-service call.
+func (s *LearningService) Curriculum(
+	ctx context.Context,
+	userID uuid.UUID,
+	courseID uuid.UUID,
+) (*course.CourseStructure, error) {
+	if _, err := s.ownedEnrollment(ctx, userID, courseID); err != nil {
+		return nil, err
+	}
+
+	structure, err := s.courses.GetCourseContent(ctx, courseID)
+	if err != nil {
+		return nil, fmt.Errorf("fetch course content: %w", err)
+	}
+
+	return structure, nil
+}
+
 type CourseProgress struct {
 	CourseID         uuid.UUID
 	TotalLessons     int64

@@ -52,11 +52,14 @@ type StructureSection struct {
 
 // StructureLesson is the curriculum entry for one lesson.
 type StructureLesson struct {
-	ID        uuid.UUID
-	Title     string
-	Type      string
-	Position  int32
-	IsPreview bool
+	ID              uuid.UUID
+	Title           string
+	Description     *string
+	Type            string
+	ContentID       *uuid.UUID
+	Position        int32
+	IsPreview       bool
+	DurationSeconds *int64
 }
 
 // LessonIDs flattens the structure into curriculum order.

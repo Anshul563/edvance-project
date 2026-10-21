@@ -71,6 +71,13 @@ func (f *fakeCourseClient) GetCourseStructure(
 	return &cp, nil
 }
 
+func (f *fakeCourseClient) GetCourseContent(
+	ctx context.Context,
+	courseID uuid.UUID,
+) (*course.CourseStructure, error) {
+	return f.GetCourseStructure(ctx, courseID)
+}
+
 func issueFlowToken(t *testing.T, userID uuid.UUID) string {
 	t.Helper()
 
@@ -603,6 +610,13 @@ func (fakeCourseClient) GetCourse(
 }
 
 func (fakeCourseClient) GetCourseStructure(
+	_ context.Context,
+	_ uuid.UUID,
+) (*course.CourseStructure, error) {
+	return nil, course.ErrCourseNotFound
+}
+
+func (fakeCourseClient) GetCourseContent(
 	_ context.Context,
 	_ uuid.UUID,
 ) (*course.CourseStructure, error) {

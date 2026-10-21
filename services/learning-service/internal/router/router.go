@@ -74,6 +74,7 @@ func registerLearningRoutes(
 		)
 		r.Get("/courses/{courseID}/resume", handlers.Progress.Resume)
 		r.Get("/courses/{courseID}/progress", handlers.Learning.Progress)
+		r.Get("/courses/{courseID}/curriculum", handlers.Learning.Curriculum)
 
 		r.Get("/me/dashboard", handlers.Learning.Dashboard)
 		r.Get("/me/activity", handlers.Learning.Activity)

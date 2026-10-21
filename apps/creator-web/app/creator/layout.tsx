@@ -27,6 +27,7 @@ import {
   SidebarLeftIcon,
   BellIcon,
   UserIcon,
+  UserCircleIcon,
   CheckmarkCircle01Icon,
   ArrowRight01Icon,
   Logout01Icon,
@@ -406,6 +407,19 @@ export default function CreatorLayout({
                 </div>
 
                 <div className="p-2">
+                  <Link
+                    href="/creator/channel"
+                    onClick={() => setUserOpen(false)}
+                    className="flex min-h-10 items-center gap-3 rounded-md px-3 text-sm transition-colors hover:bg-accent"
+                  >
+                    <HugeiconsIcon
+                      icon={UserCircleIcon}
+                      strokeWidth={1.8}
+                      className="size-4"
+                    />
+                    Manage channel
+                  </Link>
+
                   <Link
                     href="/creator/settings"
                     onClick={() => setUserOpen(false)}
