@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   resetCreatorCache: vi.fn(),
   listVideos: vi.fn(),
   listCategories: vi.fn(),
+  onboardCreator: vi.fn(),
   publishVideo: vi.fn(),
   unpublishVideo: vi.fn(),
   retryProcessing: vi.fn(),
@@ -36,6 +37,7 @@ vi.mock("./video-api", () => ({
   resetCreatorCache: mocks.resetCreatorCache,
   listVideos: mocks.listVideos,
   listCategories: mocks.listCategories,
+  onboardCreator: mocks.onboardCreator,
   publishVideo: mocks.publishVideo,
   unpublishVideo: mocks.unpublishVideo,
   retryProcessing: mocks.retryProcessing,
@@ -102,6 +104,50 @@ describe("VideoLibrary", () => {
     mocks.getMyCreator.mockResolvedValueOnce(CREATOR)
     await user.click(screen.getByRole("button", { name: "Try again" }))
     await waitFor(() => expect(mocks.listVideos).toHaveBeenCalled())
+  })
+
+  it("distinguishes a creator-service outage from a missing profile", async () => {
+    mocks.getMyCreator.mockResolvedValueOnce({
+      success: false,
+      error: { code: "service_unavailable", message: "service_unavailable", status: 502 },
+    })
+    render(<VideoLibrary />)
+
+    expect(await screen.findByText("Creator service unavailable")).toBeInTheDocument()
+    expect(
+      screen.getByText(/Check that the creator service is running/)
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/A creator profile is required/)).not.toBeInTheDocument()
+  })
+
+  it("creates a creator profile and loads the videos after onboarding", async () => {
+    mocks.getMyCreator.mockResolvedValueOnce({
+      success: false,
+      error: { code: "not_found", message: "creator not found", status: 404 },
+    })
+    mocks.onboardCreator.mockResolvedValue({
+      success: true,
+      data: { id: "cr_1", userId: "u_1", status: "active", displayName: "Ada Learns" },
+    })
+    const user = userEvent.setup()
+    render(<VideoLibrary />)
+
+    await user.type(await screen.findByLabelText("Channel name"), "Ada Learns")
+    await user.type(screen.getByLabelText("Handle"), "ada-learns")
+    await user.click(screen.getByRole("button", { name: "Create creator profile" }))
+
+    await waitFor(() =>
+      expect(mocks.onboardCreator).toHaveBeenCalledWith({
+        channelName: "Ada Learns",
+        handle: "ada-learns",
+        description: undefined,
+      })
+    )
+    await waitFor(() =>
+      expect(mocks.listVideos).toHaveBeenCalledWith(
+        expect.objectContaining({ creatorId: "cr_1" })
+      )
+    )
   })
 
   it("renders videos with status-aware actions", async () => {

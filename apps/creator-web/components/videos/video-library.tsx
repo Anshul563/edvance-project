@@ -25,6 +25,8 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { EmptyState } from "@/components/empty-state"
 import { ConfirmationDialog } from "@/components/confirmation-dialog"
 import { SearchFilter } from "@/components/search-filter"
@@ -44,7 +46,9 @@ import {
   getMyCreator,
   listCategories,
   listVideos,
+  onboardCreator,
   publishVideo,
+  resetCreatorCache,
   retryProcessing,
   unpublishVideo,
 } from "./video-api"
@@ -212,7 +216,13 @@ export function VideoLibrary() {
 
   const [creatorId, setCreatorId] = useState<string | null>(null)
   const [creatorError, setCreatorError] = useState<string | null>(null)
+  const [creatorErrorStatus, setCreatorErrorStatus] = useState<number | null>(null)
   const [creatorLoading, setCreatorLoading] = useState(true)
+  const [channelName, setChannelName] = useState("")
+  const [handle, setHandle] = useState("")
+  const [description, setDescription] = useState("")
+  const [onboarding, setOnboarding] = useState(false)
+  const [onboardError, setOnboardError] = useState<string | null>(null)
 
   const [categories, setCategories] = useState<VideoCategory[]>([])
   const [videos, setVideos] = useState<Video[]>([])
@@ -248,9 +258,11 @@ export function VideoLibrary() {
     const result = await getMyCreator()
     if (!result.success) {
       setCreatorError(result.error?.message ?? "Could not load your creator profile.")
+      setCreatorErrorStatus(result.error?.status ?? null)
       setCreatorLoading(false)
       return
     }
+    setCreatorErrorStatus(null)
     setCreatorId(result.data.id)
     setCreatorLoading(false)
   }, [])
@@ -339,6 +351,29 @@ export function VideoLibrary() {
     setReloadToken((token) => token + 1)
   }
 
+  async function handleOnboard(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (onboarding) return
+    setOnboarding(true)
+    setOnboardError(null)
+    const result = await onboardCreator({
+      channelName: channelName.trim(),
+      handle: handle.trim(),
+      description: description.trim() || undefined,
+    })
+    setOnboarding(false)
+    if (!result.success) {
+      setOnboardError(result.error?.message ?? "The creator profile could not be created.")
+      return
+    }
+    setCreatorError(null)
+    setCreatorErrorStatus(null)
+    setCreatorId(result.data.id)
+    setChannelName("")
+    setHandle("")
+    setDescription("")
+  }
+
   async function runAction(
     video: Video,
     action: () => Promise<{ success: boolean; error?: { message: string } }>,
@@ -414,16 +449,78 @@ export function VideoLibrary() {
               className="mt-0.5 size-5 shrink-0 text-destructive"
             />
             <div>
-              <h2 className="text-sm font-semibold">Videos are unavailable</h2>
+              <h2 className="text-sm font-semibold">
+                {creatorErrorStatus === 404
+                  ? "Creator profile required"
+                  : "Creator service unavailable"}
+              </h2>
               <p className="mt-1 text-xs text-muted-foreground">{creatorError}</p>
               <p className="mt-3 text-xs text-muted-foreground">
-                A creator profile is required to own and publish videos. Complete
-                your creator profile, then try again.
+                {creatorErrorStatus === 404
+                  ? "A creator profile is required to own and publish videos. Create your profile below, then try again."
+                  : "The creator service could not be reached, so video ownership cannot be verified. Check that the creator service is running, then retry."}
               </p>
+              {creatorErrorStatus === 404 && (
+                <form className="mt-4 grid gap-3" onSubmit={handleOnboard}>
+                  <div className="grid gap-1">
+                    <Label htmlFor="creator-channel-name" className="text-xs">
+                      Channel name
+                    </Label>
+                    <Input
+                      id="creator-channel-name"
+                      value={channelName}
+                      maxLength={100}
+                      required
+                      placeholder="Ada Learns"
+                      onChange={(event) => setChannelName(event.target.value)}
+                    />
+                  </div>
+                  <div className="grid gap-1">
+                    <Label htmlFor="creator-handle" className="text-xs">
+                      Handle
+                    </Label>
+                    <Input
+                      id="creator-handle"
+                      value={handle}
+                      maxLength={30}
+                      required
+                      placeholder="ada-learns"
+                      onChange={(event) => setHandle(event.target.value)}
+                    />
+                    <p className="text-[11px] text-muted-foreground">
+                      Your public channel address. Letters, numbers, and hyphens.
+                    </p>
+                  </div>
+                  <div className="grid gap-1">
+                    <Label htmlFor="creator-description" className="text-xs">
+                      Description (optional)
+                    </Label>
+                    <Input
+                      id="creator-description"
+                      value={description}
+                      maxLength={1000}
+                      placeholder="What do you teach?"
+                      onChange={(event) => setDescription(event.target.value)}
+                    />
+                  </div>
+                  {onboardError && (
+                    <p role="alert" className="text-xs text-destructive">
+                      {onboardError}
+                    </p>
+                  )}
+                  <div>
+                    <Button type="submit" size="sm" disabled={onboarding}>
+                      {onboarding ? "Creating..." : "Create creator profile"}
+                    </Button>
+                  </div>
+                </form>
+              )}
               <Button
                 className="mt-4"
                 size="sm"
+                variant={creatorErrorStatus === 404 ? "ghost" : "default"}
                 onClick={() => {
+                  resetCreatorCache()
                   setCreatorLoading(true)
                   void loadCreator()
                 }}

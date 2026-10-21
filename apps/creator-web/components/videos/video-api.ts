@@ -48,6 +48,16 @@ export function resetCreatorCache(): void {
   creatorRequest = null
 }
 
+export function onboardCreator(input: {
+  channelName: string
+  handle: string
+  description?: string
+}): Promise<ApiResponse<CreatorProfile>> {
+  return api.request<CreatorProfile>("POST", "/api/v1/creators/onboard", {
+    body: input,
+  })
+}
+
 // --- Metadata --------------------------------------------------------
 
 export function listVideos(
