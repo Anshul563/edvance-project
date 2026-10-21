@@ -111,13 +111,27 @@ function networkError<T>(err: unknown): ApiResponse<T> {
   }
 }
 
-async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  signal?: AbortSignal
+): Promise<Response> {
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+  const timeout = setTimeout(
+    () => controller.abort(new DOMException("Request timed out", "TimeoutError")),
+    REQUEST_TIMEOUT_MS
+  )
+  const forwardAbort = () => controller.abort(signal?.reason)
+  if (signal?.aborted) {
+    controller.abort(signal.reason)
+  } else {
+    signal?.addEventListener("abort", forwardAbort, { once: true })
+  }
   try {
     return await fetch(url, { ...init, signal: controller.signal, cache: "no-store" })
   } finally {
     clearTimeout(timeout)
+    signal?.removeEventListener("abort", forwardAbort)
   }
 }
 
@@ -177,7 +191,7 @@ export class ApiClient {
     }
 
     try {
-      const response = await fetchWithTimeout(url, { method, headers, body })
+      const response = await fetchWithTimeout(url, { method, headers, body }, options.signal)
       return await toApiResponse<T>(response, `Request failed (${method} ${path}).`)
     } catch (err) {
       return networkError<T>(err)
