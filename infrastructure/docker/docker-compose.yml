@@ -66,6 +66,8 @@ services:
     depends_on:
       auth-service:
         condition: service_started
+      creator-service:
+        condition: service_started
       admin-api:
         condition: service_started
     healthcheck:
@@ -157,6 +159,32 @@ services:
       timeout: 5s
       retries: 12
       start_period: 15s
+
+  creator-service:
+    build:
+      context: ../../services/creator-service
+      dockerfile: Dockerfile
+    image: edvance/creator-service:local
+    container_name: edvance-creator-service
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      CREATOR_SERVICE_PORT: "8083"
+      DATABASE_URL: ${CREATOR_DATABASE_URL:-postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/edvance_creator?sslmode=disable}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev-local-jwt-secret}
+      JWT_ISSUER: ${JWT_ISSUER:-edvance-auth}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-edvance-api}
+    ports:
+      - "8083:8083"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8083/health >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
 
   analytics-service:
     build:
@@ -426,6 +454,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      creator-service:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8084/health >/dev/null 2>&1 || exit 1"]
       interval: 10s
@@ -448,12 +478,12 @@ services:
       JWT_ISSUER: ${JWT_ISSUER:-edvance-auth}
       JWT_AUDIENCE: ${JWT_AUDIENCE:-edvance-api}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-local-internal-token}
-      S3_ENDPOINT: "http://s3stub:9000"
+      S3_ENDPOINT: ${R2_ENDPOINT:-http://s3stub:9000}
       S3_REGION: auto
-      S3_BUCKET: ${S3_BUCKET:-edvance-media}
-      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-dev-local-access-key}
-      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-dev-local-secret-key}
-      S3_PUBLIC_URL: ${S3_PUBLIC_URL:-}
+      S3_BUCKET: ${R2_BUCKET_NAME:-edvance-media}
+      S3_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-dev-local-access-key}
+      S3_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-dev-local-secret-key}
+      S3_PUBLIC_URL: ${R2_PUBLIC_URL:-}
       MEDIA_ENGINE_URL: "http://mockengine:9090"
       MEDIA_ENGINE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-local-internal-token}
       VIDEO_SERVICE_CALLBACK_URL: "http://video-service:8085/internal/v1/videos/processing/callback"

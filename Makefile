@@ -21,7 +21,7 @@ help:
 	@printf "  make check         Alias for test + build.\n"
 
 test:
-	@go test ./services/admin-api/... ./services/api-gateway/... ./services/analytics-service/... ./services/auth-service/... ./services/course-service/... ./services/learning-service/... ./services/commerce-service/... ./services/payment-service/... ./services/live-streaming-service/... ./services/content-service/... ./services/video-service/...
+	@go test ./services/admin-api/... ./services/api-gateway/... ./services/analytics-service/... ./services/auth-service/... ./services/creator-service/... ./services/course-service/... ./services/learning-service/... ./services/commerce-service/... ./services/payment-service/... ./services/live-streaming-service/... ./services/content-service/... ./services/video-service/...
 	@if [ -x services/moderation-service/.venv/bin/python ]; then cd services/moderation-service && ./.venv/bin/python -m pytest -q tests; else echo "moderation-service venv missing; skipping"; fi
 	@if [ -x services/recommendation-service/.venv/bin/python ]; then cd services/recommendation-service && ./.venv/bin/python -m pytest -q tests; else echo "recommendation-service venv missing; skipping"; fi
 
@@ -30,6 +30,7 @@ build:
 	@cd services/api-gateway && go build ./...
 	@cd services/analytics-service && go build ./...
 	@cd services/auth-service && go build ./...
+	@cd services/creator-service && go build ./...
 	@cd services/course-service && go build ./...
 	@cd services/learning-service && go build ./...
 	@cd services/commerce-service && go build ./...
@@ -37,7 +38,7 @@ build:
 	@cd services/live-streaming-service && go build ./...
 	@cd services/content-service && go build ./...
 	@cd services/video-service && go build ./...
-	@if [ -f $(ENV_FILE) ]; then docker compose --env-file $(ENV_FILE) -f $(COMPOSE_FILE) build api-gateway admin-api auth-service analytics-service recommendation-service moderation-service course-service learning-service commerce-service payment-service live-streaming-service mediamtx content-service video-service s3stub mockengine; else echo "$(ENV_FILE) missing; create it from .env.example first"; fi
+	@if [ -f $(ENV_FILE) ]; then docker compose --env-file $(ENV_FILE) -f $(COMPOSE_FILE) build api-gateway admin-api auth-service creator-service analytics-service recommendation-service moderation-service course-service learning-service commerce-service payment-service live-streaming-service mediamtx content-service video-service s3stub mockengine; else echo "$(ENV_FILE) missing; create it from .env.example first"; fi
 
 lint:
 	@command -v gofmt >/dev/null && gofmt -l services/admin-api services/api-gateway services/analytics-service || true
@@ -55,10 +56,10 @@ infra-up:
 	@docker compose --env-file $(ENV_FILE) -f $(COMPOSE_FILE) up -d --wait postgres redis
 
 app-up: infra-up
-	@docker compose --env-file $(ENV_FILE) -f $(COMPOSE_FILE) up -d api-gateway admin-api auth-service analytics-service recommendation-service moderation-service
+	@docker compose --env-file $(ENV_FILE) -f $(COMPOSE_FILE) up -d api-gateway admin-api auth-service creator-service analytics-service recommendation-service moderation-service
 
 content-up: infra-up
-	@docker compose --env-file $(ENV_FILE) -f $(COMPOSE_FILE) up -d content-service video-service s3stub mockengine
+	@docker compose --env-file $(ENV_FILE) -f $(COMPOSE_FILE) up -d creator-service content-service video-service s3stub mockengine
 
 purchase-up:
 	@if [ ! -f $(ENV_FILE) ]; then echo "Copy .env.example to .env before starting the stack."; exit 1; fi
@@ -87,7 +88,7 @@ migrate:
 	@if [ ! -f $(ENV_FILE) ]; then echo "Copy .env.example to .env before applying migrations."; exit 1; fi
 	@set -a; . ./.env; set +a; docker compose --env-file $(ENV_FILE) -f $(COMPOSE_FILE) up -d --wait postgres
 	@set -a; . ./.env; set +a; docker compose --env-file $(ENV_FILE) -f $(COMPOSE_FILE) exec -T postgres psql -U "$${POSTGRES_USER:-postgres}" -d "$${POSTGRES_DB:-postgres}" -v ON_ERROR_STOP=1 < infrastructure/postgres/init/01-create-databases.sql
-	@set -e; set -a; . ./.env; set +a; for entry in "auth-service edvance_auth" "analytics-service edvance_analytics" "course-service edvance_course" "learning-service edvance_learning" "commerce-service edvance_commerce" "payment-service edvance_payment" "moderation-service edvance_moderation" "recommendation-service edvance_recommendation" "live-streaming-service edvance_live" "content-service edvance_content" "video-service edvance_video"; do \
+	@set -e; set -a; . ./.env; set +a; for entry in "auth-service edvance_auth" "creator-service edvance_creator" "analytics-service edvance_analytics" "course-service edvance_course" "learning-service edvance_learning" "commerce-service edvance_commerce" "payment-service edvance_payment" "moderation-service edvance_moderation" "recommendation-service edvance_recommendation" "live-streaming-service edvance_live" "content-service edvance_content" "video-service edvance_video"; do \
 		set -- $$entry; service=$$1; database=$$2; \
 		for migration in services/$$service/migrations/*.sql; do \
 			docker compose --env-file $(ENV_FILE) -f $(COMPOSE_FILE) exec -T postgres psql -U "$${POSTGRES_USER:-postgres}" -d "$$database" -v ON_ERROR_STOP=1 < "$$migration"; \

@@ -33,3 +33,6 @@ WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'edvance_content')\gex
 
 SELECT 'CREATE DATABASE edvance_video'
 WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'edvance_video')\gexec
+
+SELECT 'CREATE DATABASE edvance_creator'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'edvance_creator')\gexec
