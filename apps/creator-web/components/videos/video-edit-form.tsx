@@ -1,16 +1,25 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+/* eslint-disable @next/next/no-img-element -- thumbnails are inlined as a data URL */
+
+import { useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { Alert02Icon, ArrowLeft01Icon, CheckmarkCircle01Icon } from "@hugeicons/core-free-icons"
+import {
+  Alert02Icon,
+  ArrowLeft01Icon,
+  CheckmarkCircle01Icon,
+  Delete02Icon,
+  Image01Icon,
+} from "@hugeicons/core-free-icons"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Skeleton } from "@/components/ui/skeleton"
+import { imageFileToDataUrl } from "@/lib/image"
 import {
   VIDEO_LANGUAGES,
   VIDEO_VISIBILITY_LABELS,
@@ -45,6 +54,9 @@ export function VideoEditForm({ videoId }: { videoId: string }) {
 
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
+  const [thumbnailUrl, setThumbnailUrl] = useState("")
+  const [uploadingThumbnail, setUploadingThumbnail] = useState(false)
+  const thumbnailInput = useRef<HTMLInputElement>(null)
   const [categorySlug, setCategorySlug] = useState("")
   const [tagsInput, setTagsInput] = useState("")
   const [language, setLanguage] = useState("en")
@@ -57,6 +69,7 @@ export function VideoEditForm({ videoId }: { videoId: string }) {
     setVideo(next)
     setTitle(next.title)
     setDescription(next.description ?? "")
+    setThumbnailUrl(next.thumbnailUrl ?? "")
     setTagsInput(next.tags.map((tag) => tag.name).join(", "))
     setLanguage(next.language)
     setVisibility(next.visibility)
@@ -94,6 +107,28 @@ export function VideoEditForm({ videoId }: { videoId: string }) {
     ? categorySlug
     : (categories.find((category) => category.id === video?.categoryId)?.slug ?? "")
 
+  async function handleThumbnail(
+    file: File | undefined,
+    input: HTMLInputElement | null
+  ) {
+    if (!file) return
+    setUploadingThumbnail(true)
+    try {
+      const dataUrl = await imageFileToDataUrl(file, {
+        width: 1280,
+        aspect: 16 / 9,
+      })
+      setThumbnailUrl(dataUrl)
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "The image could not be processed."
+      )
+    } finally {
+      setUploadingThumbnail(false)
+      if (input) input.value = ""
+    }
+  }
+
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!video || saving) return
@@ -122,6 +157,7 @@ export function VideoEditForm({ videoId }: { videoId: string }) {
     const result = await updateVideo(video.id, {
       title: trimmedTitle,
       description: description.trim(),
+      thumbnailUrl: thumbnailUrl.trim(),
       categorySlug,
       tags,
       language,
@@ -240,6 +276,68 @@ export function VideoEditForm({ videoId }: { videoId: string }) {
             maxLength={5000}
             onChange={(event) => setDescription(event.target.value)}
           />
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <Label className="text-xs font-medium">Thumbnail</Label>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+            <div className="relative aspect-video w-full max-w-xs overflow-hidden border border-border bg-muted">
+              {thumbnailUrl ? (
+                <img
+                  src={thumbnailUrl}
+                  alt="Video thumbnail preview"
+                  className="size-full object-cover"
+                />
+              ) : (
+                <div className="flex size-full flex-col items-center justify-center gap-1 text-muted-foreground">
+                  <HugeiconsIcon icon={Image01Icon} strokeWidth={1.6} className="size-6" />
+                  <span className="text-[11px]">No thumbnail yet</span>
+                </div>
+              )}
+            </div>
+            <div className="flex flex-col gap-2">
+              <input
+                ref={thumbnailInput}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                onChange={(event) =>
+                  void handleThumbnail(event.target.files?.[0], event.target)
+                }
+              />
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={uploadingThumbnail}
+                  onClick={() => thumbnailInput.current?.click()}
+                >
+                  <HugeiconsIcon icon={Image01Icon} strokeWidth={1.8} />
+                  {uploadingThumbnail
+                    ? "Processing..."
+                    : thumbnailUrl
+                      ? "Replace image"
+                      : "Upload image"}
+                </Button>
+                {thumbnailUrl && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={uploadingThumbnail}
+                    onClick={() => setThumbnailUrl("")}
+                  >
+                    <HugeiconsIcon icon={Delete02Icon} strokeWidth={1.8} />
+                    Remove
+                  </Button>
+                )}
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Recommended 1280×720 (16:9), JPEG or PNG, under 8 MB.
+              </p>
+            </div>
+          </div>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">

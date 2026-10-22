@@ -355,6 +355,46 @@ func TestUpdateAppliesOwnerEdits(t *testing.T) {
 	}
 }
 
+func TestUpdateAcceptsInlineThumbnail(t *testing.T) {
+	e := newEnv()
+
+	video := mustCreateVideo(t, e, e.actor, CreateVideoInput{Title: "Thumbnail edit"})
+
+	// Creator-uploaded thumbnails arrive as inline JPEG data URLs, which
+	// are far longer than a plain R2/CDN URL.
+	thumbnail := "data:image/jpeg;base64," + strings.Repeat("A", 2000)
+
+	updated, err := e.videoService.Update(
+		context.Background(),
+		e.actor,
+		video.ID,
+		UpdateVideoInput{ThumbnailURL: &thumbnail},
+	)
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+
+	if updated.ThumbnailURL == nil || *updated.ThumbnailURL != thumbnail {
+		t.Fatalf("thumbnail was not stored: %v", updated.ThumbnailURL)
+	}
+
+	empty := ""
+
+	cleared, err := e.videoService.Update(
+		context.Background(),
+		e.actor,
+		video.ID,
+		UpdateVideoInput{ThumbnailURL: &empty},
+	)
+	if err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+
+	if cleared.ThumbnailURL != nil {
+		t.Fatalf("expected thumbnail cleared, got %q", *cleared.ThumbnailURL)
+	}
+}
+
 func TestDeleteForbiddenForNonOwner(t *testing.T) {
 	e := newEnv()
 

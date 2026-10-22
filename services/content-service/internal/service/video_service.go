@@ -15,6 +15,11 @@ import (
 	"github.com/Anshul563/edvance-project/services/content-service/internal/repository"
 )
 
+// maxThumbnailURLLength bounds the video thumbnail field. It is large
+// enough to hold an inline JPEG data URL uploaded by a creator (mirrors
+// channel artwork) as well as a pipeline-provided R2/CDN URL.
+const maxThumbnailURLLength = 400_000
+
 // VideoStore is the persistence contract for videos.
 // *repository.VideoRepository satisfies it.
 type VideoStore interface {
@@ -215,7 +220,7 @@ func (s *VideoService) Create(
 		return nil, err
 	}
 
-	thumbnailURL, err := normalizeOptionalText(input.ThumbnailURL, 1000)
+	thumbnailURL, err := normalizeOptionalText(input.ThumbnailURL, maxThumbnailURLLength)
 	if err != nil {
 		return nil, err
 	}
@@ -352,7 +357,7 @@ func (s *VideoService) Update(
 	}
 
 	if input.ThumbnailURL != nil {
-		thumbnailURL, err := normalizeOptionalText(input.ThumbnailURL, 1000)
+		thumbnailURL, err := normalizeOptionalText(input.ThumbnailURL, maxThumbnailURLLength)
 		if err != nil {
 			return nil, err
 		}
@@ -576,7 +581,7 @@ func (s *VideoService) SetMediaStatus(
 		return nil, err
 	}
 
-	thumbnailURL, err := normalizeOptionalText(update.ThumbnailURL, 1000)
+	thumbnailURL, err := normalizeOptionalText(update.ThumbnailURL, maxThumbnailURLLength)
 	if err != nil {
 		return nil, err
 	}
@@ -626,7 +631,7 @@ func (s *VideoService) SetMediaStatusByMediaAsset(
 		return nil, err
 	}
 
-	thumbnailURL, err := normalizeOptionalText(update.ThumbnailURL, 1000)
+	thumbnailURL, err := normalizeOptionalText(update.ThumbnailURL, maxThumbnailURLLength)
 	if err != nil {
 		return nil, err
 	}
