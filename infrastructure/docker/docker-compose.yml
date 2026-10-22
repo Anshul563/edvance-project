@@ -578,5 +578,28 @@ services:
       retries: 12
       start_period: 5s
 
+  nats:
+    image: nats:2.10-alpine
+    container_name: edvance-nats
+    restart: unless-stopped
+    command:
+      - "-js"
+      - "-a=0.0.0.0"
+      - "-p=4222"
+      - "-m=8222"
+      - "-sd=/var/lib/nats/data"
+    ports:
+      - "${NATS_PORT:-4222}:4222"
+      - "${NATS_MONITOR_PORT:-8222}:8222"
+    volumes:
+      - nats_data:/var/lib/nats/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8222/varz"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+
 volumes:
   postgres_data:
+  nats_data:

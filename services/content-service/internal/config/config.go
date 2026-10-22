@@ -4,6 +4,8 @@ import (
 	"errors"
 	"os"
 	"strconv"
+
+	"github.com/Anshul563/edvance-project/packages/events"
 )
 
 type Config struct {
@@ -18,6 +20,7 @@ type Config struct {
 	VideoService      VideoServiceConfig
 	Notification      NotificationConfig
 	Content           ContentConfig
+	NATS              events.NATSConfig
 }
 
 // VideoServiceConfig points at the media authority. The internal token
@@ -135,6 +138,8 @@ func Load() (Config, error) {
 			URL:           getEnv("NOTIFICATION_SERVICE_URL", "http://localhost:8092"),
 			InternalToken: os.Getenv("NOTIFICATION_INTERNAL_TOKEN"),
 		},
+
+		NATS: events.Load(),
 
 		Content: ContentConfig{
 			MaxShortDurationSeconds: maxShortDuration,

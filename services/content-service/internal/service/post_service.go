@@ -2,13 +2,16 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Anshul563/edvance-project/packages/events"
 	"github.com/Anshul563/edvance-project/services/content-service/internal/model"
 	"github.com/Anshul563/edvance-project/services/content-service/internal/notifier"
 	"github.com/Anshul563/edvance-project/services/content-service/internal/repository"
@@ -26,7 +29,9 @@ type PostStore interface {
 	) error
 	DeleteWithTags(ctx context.Context, id uuid.UUID) error
 	Publish(ctx context.Context, id uuid.UUID) (*model.Post, error)
+	PublishTx(ctx context.Context, tx repository.DBTX, id uuid.UUID) (*model.Post, error)
 	Unpublish(ctx context.Context, id uuid.UUID) (*model.Post, error)
+	UnpublishTx(ctx context.Context, tx repository.DBTX, id uuid.UUID) (*model.Post, error)
 	IncrementCounters(
 		ctx context.Context,
 		id uuid.UUID,
@@ -53,6 +58,9 @@ type PostService struct {
 	creators CreatorResolver
 	notifier notifier.Notifier
 	limits   Limits
+
+	db     *pgxpool.Pool
+	outbox *repository.OutboxRepository
 }
 
 func NewPostService(
@@ -71,6 +79,16 @@ func NewPostService(
 		notifier: publisher,
 		limits:   limits,
 	}
+}
+
+// SetOutbox attaches a database pool so publish/unpublish events are
+// recorded in the transactional outbox and delivered durably over NATS.
+func (s *PostService) SetOutbox(db *pgxpool.Pool) {
+	if db == nil {
+		return
+	}
+	s.db = db
+	s.outbox = repository.NewOutboxRepository(db)
 }
 
 // CreatePostInput is the client-writable subset of a post. Posts have
@@ -276,6 +294,52 @@ func (s *PostService) Publish(
 		)
 	}
 
+	published, err := s.publishPost(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	s.notifyPublished(ctx, actor, "post", published.ID, excerpt(published.Content))
+
+	return published, nil
+}
+
+// publishPost persists the publish transition and records a matching
+// content.published outbox row in the same transaction when a database
+// pool is attached.
+func (s *PostService) publishPost(
+	ctx context.Context,
+	id uuid.UUID,
+) (*model.Post, error) {
+	if s.db != nil && s.outbox != nil {
+		tx, err := s.db.Begin(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("begin publish transaction: %w", err)
+		}
+		defer tx.Rollback(ctx)
+
+		published, err := s.posts.PublishTx(ctx, tx, id)
+		if err != nil {
+			return nil, err
+		}
+
+		if err := s.recordOutboxEvent(
+			ctx, tx,
+			events.ContentPublished,
+			"post",
+			published.ID,
+			excerpt(published.Content),
+		); err != nil {
+			return nil, fmt.Errorf("record publish outbox: %w", err)
+		}
+
+		if err := tx.Commit(ctx); err != nil {
+			return nil, fmt.Errorf("commit publish transaction: %w", err)
+		}
+
+		return published, nil
+	}
+
 	published, err := s.posts.Publish(ctx, id)
 	if err != nil {
 		if mapRepoError(err) == ErrNotPublishable {
@@ -285,13 +349,55 @@ func (s *PostService) Publish(
 				model.PostStatusDraft,
 			)
 		}
-
 		return nil, mapRepoError(err)
 	}
 
-	s.notifyPublished(ctx, actor, "post", published.ID, excerpt(published.Content))
-
 	return published, nil
+}
+
+// recordOutboxEvent inserts one event into the transactional outbox.
+// payload carries minimal, non-sensitive fields: identifiers and a
+// content excerpt only.
+func (s *PostService) recordOutboxEvent(
+	ctx context.Context,
+	tx repository.DBTX,
+	eventType string,
+	contentType string,
+	id uuid.UUID,
+	excerptText string,
+) error {
+	payload := map[string]string{
+		"contentType": contentType,
+		"contentId":   id.String(),
+		"title":       excerptText,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal outbox payload: %w", err)
+	}
+
+	event, err := events.NewEvent(
+		eventType,
+		events.DefaultSchemaVersion,
+		"content-service",
+		data,
+	)
+	if err != nil {
+		return err
+	}
+
+	_, err = s.outbox.Insert(
+		ctx,
+		tx,
+		event.Type,
+		events.SubjectFor(event.Type),
+		event.Data,
+	)
+	if err != nil {
+		return fmt.Errorf("insert outbox row: %w", err)
+	}
+
+	return nil
 }
 
 // Unpublish takes a post off the public surface: status returns to
@@ -305,7 +411,7 @@ func (s *PostService) Unpublish(
 		return nil, err
 	}
 
-	unpublished, err := s.posts.Unpublish(ctx, id)
+	unpublished, err := s.unpublishPost(ctx, id)
 	if err != nil {
 		if mapRepoError(err) == ErrNotPublishable {
 			return nil, fmt.Errorf(
@@ -314,6 +420,56 @@ func (s *PostService) Unpublish(
 			)
 		}
 
+		return nil, mapRepoError(err)
+	}
+
+	return unpublished, nil
+}
+
+// unpublishPost persists the unpublish transition and records a matching
+// content.unpublished outbox row in the same transaction when a database
+// pool is attached.
+func (s *PostService) unpublishPost(
+	ctx context.Context,
+	id uuid.UUID,
+) (*model.Post, error) {
+	if s.db != nil && s.outbox != nil {
+		tx, err := s.db.Begin(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("begin unpublish transaction: %w", err)
+		}
+		defer tx.Rollback(ctx)
+
+		unpublished, err := s.posts.UnpublishTx(ctx, tx, id)
+		if err != nil {
+			return nil, err
+		}
+
+		if err := s.recordOutboxEvent(
+			ctx, tx,
+			events.ContentUnpublished,
+			"post",
+			unpublished.ID,
+			excerpt(unpublished.Content),
+		); err != nil {
+			return nil, fmt.Errorf("record unpublish outbox: %w", err)
+		}
+
+		if err := tx.Commit(ctx); err != nil {
+			return nil, fmt.Errorf("commit unpublish transaction: %w", err)
+		}
+
+		return unpublished, nil
+	}
+
+	unpublished, err := s.posts.Unpublish(ctx, id)
+	if err != nil {
+		if mapRepoError(err) == ErrNotPublishable {
+			return nil, fmt.Errorf(
+				"%w: only published posts can unpublish",
+				ErrInvalidStatus,
+			)
+		}
 		return nil, mapRepoError(err)
 	}
 

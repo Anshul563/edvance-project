@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/google/uuid"
 
+	"github.com/Anshul563/edvance-project/packages/events"
 	"github.com/Anshul563/edvance-project/services/payment-service/internal/commerce"
 	"github.com/Anshul563/edvance-project/services/payment-service/internal/model"
 	"github.com/Anshul563/edvance-project/services/payment-service/internal/razorpay"
@@ -57,6 +59,7 @@ type WebhookService struct {
 	refunds       *RefundService
 	commerce      commerce.Client
 	webhookSecret string
+	publisher     events.Publisher
 }
 
 func NewWebhookService(
@@ -81,6 +84,63 @@ func NewWebhookService(
 		commerce:      commerce,
 		webhookSecret: webhookSecret,
 	}, nil
+}
+
+// SetPublisher attaches the NATS publisher so verified payment outcomes
+// are emitted as durable payment.* events. It is optional; when unset,
+// no payment.* events are published.
+func (s *WebhookService) SetPublisher(publisher events.Publisher) {
+	s.publisher = publisher
+}
+
+// publishEvent emits one verified payment outcome as a payment.* event,
+// swallowing failures so a broker outage never fails a webhook handler.
+func (s *WebhookService) publishEvent(
+	ctx context.Context,
+	eventType string,
+	payload map[string]string,
+	correlationID string,
+) {
+	if s.publisher == nil {
+		return
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		slog.Warn(
+			"payment event: marshal payload failed",
+			"type", eventType,
+			"error", err,
+		)
+		return
+	}
+
+	event, err := events.NewEvent(
+		eventType,
+		events.DefaultSchemaVersion,
+		"payment-service",
+		data,
+	)
+	if err != nil {
+		slog.Warn(
+			"payment event: build envelope failed",
+			"type", eventType,
+			"error", err,
+		)
+		return
+	}
+
+	if correlationID != "" {
+		event.WithCorrelationID(correlationID)
+	}
+
+	if err := s.publisher.Publish(ctx, event); err != nil {
+		slog.Warn(
+			"payment event: publish failed",
+			"type", eventType,
+			"error", err,
+		)
+	}
 }
 
 type WebhookResult struct {
@@ -257,6 +317,17 @@ func (s *WebhookService) onPaymentCaptured(
 	}
 
 	if payment.Status == model.PaymentCaptured {
+		s.publishEvent(
+			ctx,
+			events.PaymentSucceeded,
+			map[string]string{
+				"payment_id":          payment.ID.String(),
+				"commerce_order_id":   payment.CommerceOrderID.String(),
+				"provider_payment_id": entity.ID,
+			},
+			payment.ID.String(),
+		)
+
 		return s.notifyPaid(ctx, payment, entity.ID)
 	}
 
@@ -269,6 +340,17 @@ func (s *WebhookService) onPaymentCaptured(
 	if err != nil {
 		return err
 	}
+
+	s.publishEvent(
+		ctx,
+		events.PaymentSucceeded,
+		map[string]string{
+			"payment_id":          captured.ID.String(),
+			"commerce_order_id":   captured.CommerceOrderID.String(),
+			"provider_payment_id": entity.ID,
+		},
+		captured.ID.String(),
+	)
 
 	return s.notifyPaid(ctx, captured, entity.ID)
 }
@@ -309,6 +391,17 @@ func (s *WebhookService) onPaymentFailed(
 	}); err != nil {
 		return fmt.Errorf("notify commerce: %w", err)
 	}
+
+	s.publishEvent(
+		ctx,
+		events.PaymentFailed,
+		map[string]string{
+			"payment_id":          payment.ID.String(),
+			"commerce_order_id":   payment.CommerceOrderID.String(),
+			"provider_payment_id": entity.ID,
+		},
+		payment.ID.String(),
+	)
 
 	return nil
 }
@@ -367,6 +460,17 @@ func (s *WebhookService) onRefundProcessed(
 	if _, err := s.refunds.ProcessRefundWebhook(ctx, entity.ID); err != nil {
 		return fmt.Errorf("process refund webhook: %w", err)
 	}
+
+	s.publishEvent(
+		ctx,
+		events.PaymentRefunded,
+		map[string]string{
+			"refund_id":       entity.ID,
+			"payment_id":      entity.PaymentID,
+			"provider_refund": entity.ID,
+		},
+		entity.ID,
+	)
 
 	return nil
 }

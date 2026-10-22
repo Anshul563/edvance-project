@@ -5,6 +5,8 @@ import (
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/Anshul563/edvance-project/packages/events"
 )
 
 type Config struct {
@@ -15,6 +17,7 @@ type Config struct {
 	JWT      JWTConfig
 	Razorpay RazorpayConfig
 	Commerce CommerceConfig
+	NATS     events.NATSConfig
 }
 
 type DatabaseConfig struct {
@@ -91,6 +94,8 @@ func Load() (Config, error) {
 			InternalToken:  os.Getenv("COMMERCE_SERVICE_INTERNAL_TOKEN"),
 			RequestTimeout: 10 * time.Second,
 		},
+
+		NATS: events.Load(),
 	}
 
 	// Same shared HMAC secret as auth-service: payment-service only

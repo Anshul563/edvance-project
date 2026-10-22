@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/Anshul563/edvance-project/packages/events"
 	"github.com/Anshul563/edvance-project/services/video-service/internal/config"
 	"github.com/Anshul563/edvance-project/services/video-service/internal/model"
 	"github.com/Anshul563/edvance-project/services/video-service/internal/repository"
@@ -39,6 +41,7 @@ type MediaService struct {
 	uploadConfig          config.UploadConfig
 	processingMaxAttempts int
 	notifier              StatusNotifier
+	publisher             events.Publisher
 	logger                *slog.Logger
 }
 
@@ -73,6 +76,64 @@ func NewMediaService(
 		uploadConfig:          uploadConfig,
 		processingMaxAttempts: processingMaxAttempts,
 		logger:                logger,
+	}
+}
+
+// SetPublisher attaches the NATS publisher so pipeline transitions are
+// emitted as durable video.* events. It is optional; when unset, no
+// video.* events are published (the service keeps working).
+func (s *MediaService) SetPublisher(publisher events.Publisher) {
+	s.publisher = publisher
+}
+
+// publishEvent emits one typed video.* event, swallowing failures so a
+// broker outage never fails an upload or callback.
+func (s *MediaService) publishEvent(
+	ctx context.Context,
+	eventType string,
+	version int,
+	payload map[string]string,
+	correlationID string,
+) {
+	if s.publisher == nil {
+		return
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		s.logger.Warn(
+			"video event: marshal payload failed",
+			"type", eventType,
+			"error", err,
+		)
+		return
+	}
+
+	event, err := events.NewEvent(
+		eventType,
+		version,
+		"video-service",
+		data,
+	)
+	if err != nil {
+		s.logger.Warn(
+			"video event: build envelope failed",
+			"type", eventType,
+			"error", err,
+		)
+		return
+	}
+
+	if correlationID != "" {
+		event.WithCorrelationID(correlationID)
+	}
+
+	if err := s.publisher.Publish(ctx, event); err != nil {
+		s.logger.Warn(
+			"video event: publish failed",
+			"type", eventType,
+			"error", err,
+		)
 	}
 }
 
@@ -204,6 +265,17 @@ func (s *MediaService) CompleteUpload(
 	}); err != nil {
 		return nil, fmt.Errorf("enqueue transcode: %w", err)
 	}
+
+	s.publishEvent(
+		ctx,
+		events.VideoProcessingRequested,
+		events.DefaultSchemaVersion,
+		map[string]string{
+			"media_asset_id": uploaded.ID.String(),
+			"owner_id":       ownerID.String(),
+		},
+		uploaded.ID.String(),
+	)
 
 	// Tell content-service the bytes landed. The worker will announce
 	// processing, and the callback will announce ready/failed.
@@ -397,6 +469,17 @@ func (s *MediaService) RetryProcessing(
 
 		return nil, fmt.Errorf("enqueue retry: %w", err)
 	}
+
+	s.publishEvent(
+		ctx,
+		events.VideoProcessingRequested,
+		events.DefaultSchemaVersion,
+		map[string]string{
+			"media_asset_id": asset.ID.String(),
+			"owner_id":       ownerID.String(),
+		},
+		asset.ID.String(),
+	)
 
 	s.notifyStatus(ctx, StatusEvent{
 		MediaAssetID: asset.ID,

@@ -5,6 +5,8 @@ import (
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/Anshul563/edvance-project/packages/events"
 )
 
 type Config struct {
@@ -19,6 +21,7 @@ type Config struct {
 	Content  ContentConfig
 	Upload   UploadConfig
 	Worker   WorkerConfig
+	NATS     events.NATSConfig
 }
 
 // ContentConfig points at content-service's internal status callback.
@@ -174,6 +177,8 @@ func Load() (Config, error) {
 			RetryBaseSeconds: 15,
 			PollInterval:     500 * time.Millisecond,
 		},
+
+		NATS: events.Load(),
 	}
 
 	// Same shared HMAC secret as auth-service: video-service only

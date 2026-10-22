@@ -12,6 +12,7 @@ import (
 
 	"github.com/joho/godotenv"
 
+	"github.com/Anshul563/edvance-project/packages/events"
 	"github.com/Anshul563/edvance-project/services/content-service/internal/config"
 	"github.com/Anshul563/edvance-project/services/content-service/internal/creatorclient"
 	"github.com/Anshul563/edvance-project/services/content-service/internal/handler"
@@ -69,6 +70,75 @@ func main() {
 	}
 	defer db.Close()
 
+	// NATS + JetStream: durable event bus for publish/unpublish events.
+	// A connection failure is not fatal: the service keeps working and
+	// events simply are not forwarded until the broker is reachable.
+	// When JetStream is available, the transactional outbox is enabled
+	// so events are never lost between a database commit and publication.
+	natsConn, natsErr := events.Connect(cfg.NATS, logger)
+
+	var eventPublisher events.Publisher = events.NoopPublisher{}
+	var outboxCancel context.CancelFunc
+	var eventsReady bool
+
+	if natsErr == nil {
+		defer natsConn.Close()
+
+		if js := natsConn.JetStream(); js != nil {
+			if _, serr := events.EnsureStream(
+				js,
+				events.DefaultEventStream(cfg.NATS),
+			); serr != nil {
+				logger.Warn(
+					"could not ensure jetstream stream",
+					"error", serr,
+				)
+			} else {
+				eventPublisher = events.NewJetStreamPublisher(
+					js,
+					"edvance.content.>",
+					cfg.NATS.PublishTimeout,
+					3,
+					logger,
+				)
+
+				eventsReady = true
+
+				outboxPublisher := service.NewOutboxPublisher(
+					eventPublisher,
+					repository.NewOutboxRepository(db),
+					logger,
+				).
+					WithAttempts(cfg.NATS.MaxDeliveries)
+
+				outboxCtx, cancel := context.WithCancel(context.Background())
+				outboxCancel = cancel
+
+				go func() {
+					if err := outboxPublisher.Run(outboxCtx); err != nil {
+						logger.Error(
+							"outbox publisher stopped",
+							"error", err,
+						)
+					}
+				}()
+
+				logger.Info(
+					"content service event publishing via nats jetstream",
+					"stream", cfg.NATS.Stream,
+					"subject", "edvance.content.>",
+				)
+			}
+		}
+	}
+
+	if natsErr != nil {
+		logger.Warn(
+			"NATS unavailable; publish events will not be forwarded durably",
+			"error", natsErr,
+		)
+	}
+
 	limits := service.Limits{
 		DefaultPage:             cfg.Content.DefaultPageSize,
 		MaxPage:                 cfg.Content.MaxPageSize,
@@ -122,6 +192,11 @@ func main() {
 		publisher,
 		limits,
 	)
+
+	if eventsReady {
+		videoService.SetOutbox(db)
+		postService.SetOutbox(db)
+	}
 
 	tagService := service.NewTagService(
 		repository.NewTagRepository(db),
@@ -184,6 +259,10 @@ func main() {
 			"signal",
 			received,
 		)
+	}
+
+	if outboxCancel != nil {
+		outboxCancel()
 	}
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(

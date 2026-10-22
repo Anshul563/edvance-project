@@ -8,6 +8,7 @@ Default profile:
 
 - PostgreSQL 16
 - Redis 7
+- NATS (JetStream, internal event bus)
 - API Gateway
 - Admin API
 - Auth Service
@@ -167,7 +168,9 @@ The local stack reflects real, verified service ownership and startup behavior i
 
 - PostgreSQL is the shared local datastore for the default services.
 - Redis is required by the Auth Service.
-- No current purchase-path service uses NATS, so NATS is not provisioned by this Compose stack.
+- NATS (JetStream) is provisioned as the internal event bus for the
+  default stack; services connect lazily and keep working if the broker
+  is temporarily unavailable.
 - Services outside the default profile are not started automatically because they were not part of the verified default local workflow.
 
 ## Useful commands

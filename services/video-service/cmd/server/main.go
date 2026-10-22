@@ -11,6 +11,7 @@ import (
 
 	"github.com/joho/godotenv"
 
+	"github.com/Anshul563/edvance-project/packages/events"
 	"github.com/Anshul563/edvance-project/services/video-service/internal/client"
 	"github.com/Anshul563/edvance-project/services/video-service/internal/config"
 	"github.com/Anshul563/edvance-project/services/video-service/internal/contentclient"
@@ -68,6 +69,50 @@ func main() {
 	}
 	defer db.Close()
 
+	// NATS + JetStream: durable event bus for video pipeline transitions.
+	// A connection failure is not fatal: the pipeline keeps working and
+	// video.* events are simply not forwarded until the broker is reachable.
+	natsConn, natsErr := events.Connect(cfg.NATS, logger)
+
+	var videoPublisher events.Publisher = events.NoopPublisher{}
+
+	if natsErr == nil {
+		defer natsConn.Close()
+
+		if js := natsConn.JetStream(); js != nil {
+			if _, serr := events.EnsureStream(
+				js,
+				events.DefaultEventStream(cfg.NATS),
+			); serr != nil {
+				logger.Warn(
+					"could not ensure jetstream stream",
+					"error", serr,
+				)
+			} else {
+				videoPublisher = events.NewJetStreamPublisher(
+					js,
+					"edvance.video.>",
+					cfg.NATS.PublishTimeout,
+					3,
+					logger,
+				)
+
+				logger.Info(
+					"video service event publishing via nats jetstream",
+					"stream", cfg.NATS.Stream,
+					"subject", "edvance.video.>",
+				)
+			}
+		}
+	}
+
+	if natsErr != nil {
+		logger.Warn(
+			"NATS unavailable; video events will not be forwarded durably",
+			"error", natsErr,
+		)
+	}
+
 	objectStore, err := storage.NewS3(
 		cfg.Storage,
 		cfg.Upload.URLTTL,
@@ -113,6 +158,7 @@ func main() {
 	)
 
 	mediaService.SetStatusNotifier(statusNotifier)
+	mediaService.SetPublisher(videoPublisher)
 
 	worker := service.NewProcessingWorker(
 		jobRepo,

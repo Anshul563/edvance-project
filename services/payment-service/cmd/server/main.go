@@ -11,6 +11,7 @@ import (
 
 	"github.com/joho/godotenv"
 
+	"github.com/Anshul563/edvance-project/packages/events"
 	"github.com/Anshul563/edvance-project/services/payment-service/internal/commerce"
 	"github.com/Anshul563/edvance-project/services/payment-service/internal/config"
 	"github.com/Anshul563/edvance-project/services/payment-service/internal/handler"
@@ -129,6 +130,50 @@ func main() {
 			err,
 		)
 		os.Exit(1)
+	}
+
+	// NATS + JetStream: publish verified payment outcomes as durable
+	// payment.* events. A connection failure is not fatal: webhook
+	// processing keeps working; events are simply not forwarded until
+	// the broker is reachable.
+	natsConn, natsErr := events.Connect(cfg.NATS, logger)
+
+	if natsErr == nil {
+		defer natsConn.Close()
+
+		if js := natsConn.JetStream(); js != nil {
+			if _, serr := events.EnsureStream(
+				js,
+				events.DefaultEventStream(cfg.NATS),
+			); serr != nil {
+				logger.Warn(
+					"could not ensure jetstream stream",
+					"error", serr,
+				)
+			} else {
+				paymentPublisher := events.NewJetStreamPublisher(
+					js,
+					"edvance.payment.>",
+					cfg.NATS.PublishTimeout,
+					3,
+					logger,
+				)
+				webhookService.SetPublisher(paymentPublisher)
+
+				logger.Info(
+					"payment service publishing nats events",
+					"stream", cfg.NATS.Stream,
+					"subject", "edvance.payment.>",
+				)
+			}
+		}
+	}
+
+	if natsErr != nil {
+		logger.Warn(
+			"NATS unavailable; payment events will not be forwarded",
+			"error", natsErr,
+		)
 	}
 
 	srv := server.New(

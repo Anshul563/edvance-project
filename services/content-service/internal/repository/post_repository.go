@@ -237,6 +237,73 @@ func (r *PostRepository) Unpublish(
 	return r.execLifecycle(ctx, query, id, ErrPostInvalidPublish)
 }
 
+// PublishTx is the transactional variant of Publish: it updates the
+// post row using the supplied tx so the business change and an outbox
+// row can commit atomically. Callers own the tx lifecycle.
+func (r *PostRepository) PublishTx(
+	ctx context.Context,
+	tx DBTX,
+	id uuid.UUID,
+) (*model.Post, error) {
+	query := `
+		UPDATE posts
+		SET status = 'published',
+		    visibility = 'public',
+		    published_at = NOW(),
+		    updated_at = NOW()
+		WHERE id = $1 AND status = 'draft'
+		RETURNING ` + postColumns
+
+	return r.execLifecycleTx(ctx, tx, query, id, ErrPostInvalidPublish)
+}
+
+// UnpublishTx is the transactional variant of Unpublish.
+func (r *PostRepository) UnpublishTx(
+	ctx context.Context,
+	tx DBTX,
+	id uuid.UUID,
+) (*model.Post, error) {
+	query := `
+		UPDATE posts
+		SET status = 'draft',
+		    visibility = 'private',
+		    published_at = NULL,
+		    updated_at = NOW()
+		WHERE id = $1 AND status = 'published'
+		RETURNING ` + postColumns
+
+	return r.execLifecycleTx(ctx, tx, query, id, ErrPostInvalidPublish)
+}
+
+// execLifecycleTx mirrors execLifecycle but runs the query through the
+// supplied DBTX (pool or tx) so callers can join it into a transaction.
+func (r *PostRepository) execLifecycleTx(
+	ctx context.Context,
+	tx DBTX,
+	query string,
+	id uuid.UUID,
+	stateErr error,
+) (*model.Post, error) {
+	post, err := scanPost(tx.QueryRow(ctx, query, id))
+	if err != nil {
+		if isNoRows(err) {
+			if _, lookupErr := r.FindByID(ctx, id); lookupErr != nil {
+				if errors.Is(lookupErr, ErrPostNotFound) {
+					return nil, ErrPostNotFound
+				}
+
+				return nil, lookupErr
+			}
+
+			return nil, stateErr
+		}
+
+		return nil, fmt.Errorf("update post: %w", err)
+	}
+
+	return post, nil
+}
+
 // IncrementCounters applies like/comment deltas from internal callers.
 // Deltas are clamped at zero; updated_at is left untouched.
 func (r *PostRepository) IncrementCounters(

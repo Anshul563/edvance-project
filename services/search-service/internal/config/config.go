@@ -5,6 +5,8 @@ import (
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/Anshul563/edvance-project/packages/events"
 )
 
 type Config struct {
@@ -26,6 +28,7 @@ type Config struct {
 
 	Pagination PaginationConfig
 	Search     SearchConfig
+	NATS       events.NATSConfig
 }
 
 type DatabaseConfig struct {
@@ -132,6 +135,8 @@ func Load() (Config, error) {
 			TrendingWindow:    24 * time.Hour,
 			TrendingLimit:     10,
 		},
+
+		NATS: events.Load(),
 	}
 
 	return cfg, nil

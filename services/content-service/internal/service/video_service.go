@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -9,7 +10,9 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Anshul563/edvance-project/packages/events"
 	"github.com/Anshul563/edvance-project/services/content-service/internal/model"
 	"github.com/Anshul563/edvance-project/services/content-service/internal/notifier"
 	"github.com/Anshul563/edvance-project/services/content-service/internal/repository"
@@ -33,7 +36,9 @@ type VideoStore interface {
 	) error
 	DeleteWithTags(ctx context.Context, id uuid.UUID) error
 	Publish(ctx context.Context, id uuid.UUID) (*model.Video, error)
+	PublishTx(ctx context.Context, tx repository.DBTX, id uuid.UUID) (*model.Video, error)
 	Unpublish(ctx context.Context, id uuid.UUID) (*model.Video, error)
+	UnpublishTx(ctx context.Context, tx repository.DBTX, id uuid.UUID) (*model.Video, error)
 	UpdateMediaStatus(
 		ctx context.Context,
 		id uuid.UUID,
@@ -123,6 +128,9 @@ type VideoService struct {
 	playback   PlaybackClient
 	notifier   notifier.Notifier
 	limits     Limits
+
+	db     *pgxpool.Pool
+	outbox *repository.OutboxRepository
 }
 
 func NewVideoService(
@@ -145,6 +153,18 @@ func NewVideoService(
 		notifier:   publisher,
 		limits:     limits,
 	}
+}
+
+// SetOutbox attaches a database pool so publish/unpublish events are
+// recorded in the transactional outbox and delivered durably over NATS.
+// When unset (tests, standalone tools), publishing falls back to the
+// existing repository-only behavior and no outbox row is written.
+func (s *VideoService) SetOutbox(db *pgxpool.Pool) {
+	if db == nil {
+		return
+	}
+	s.db = db
+	s.outbox = repository.NewOutboxRepository(db)
 }
 
 // CreateVideoInput is the client-writable subset of a video. Status,
@@ -466,6 +486,53 @@ func (s *VideoService) Publish(
 		)
 	}
 
+	published, err := s.publishVideo(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	s.notifyPublished(ctx, actor, "video", published.ID, published.Title)
+
+	return published, nil
+}
+
+// publishVideo persists the publish transition and records a matching
+// outbox row in the same transaction when a database pool is attached.
+// This is the durability boundary: the content.published event is never
+// lost between the row commit and JetStream publication.
+func (s *VideoService) publishVideo(
+	ctx context.Context,
+	id uuid.UUID,
+) (*model.Video, error) {
+	if s.db != nil && s.outbox != nil {
+		tx, err := s.db.Begin(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("begin publish transaction: %w", err)
+		}
+		defer tx.Rollback(ctx)
+
+		published, err := s.videos.PublishTx(ctx, tx, id)
+		if err != nil {
+			return nil, err
+		}
+
+		if err := s.recordOutboxEvent(
+			ctx, tx,
+			events.ContentPublished,
+			"video",
+			published.ID,
+			published.Title,
+		); err != nil {
+			return nil, fmt.Errorf("record publish outbox: %w", err)
+		}
+
+		if err := tx.Commit(ctx); err != nil {
+			return nil, fmt.Errorf("commit publish transaction: %w", err)
+		}
+
+		return published, nil
+	}
+
 	published, err := s.videos.Publish(ctx, id)
 	if err != nil {
 		if mapRepoError(err) == ErrNotPublishable {
@@ -475,13 +542,55 @@ func (s *VideoService) Publish(
 				model.VideoStatusReady,
 			)
 		}
-
 		return nil, mapRepoError(err)
 	}
 
-	s.notifyPublished(ctx, actor, "video", published.ID, published.Title)
-
 	return published, nil
+}
+
+// recordOutboxEvent inserts one event into the transactional outbox.
+// payload carries minimal, non-sensitive fields: identifiers and a
+// title only.
+func (s *VideoService) recordOutboxEvent(
+	ctx context.Context,
+	tx repository.DBTX,
+	eventType string,
+	contentType string,
+	id uuid.UUID,
+	title string,
+) error {
+	payload := map[string]string{
+		"contentType": contentType,
+		"contentId":   id.String(),
+		"title":       title,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal outbox payload: %w", err)
+	}
+
+	event, err := events.NewEvent(
+		eventType,
+		events.DefaultSchemaVersion,
+		"content-service",
+		data,
+	)
+	if err != nil {
+		return err
+	}
+
+	_, err = s.outbox.Insert(
+		ctx,
+		tx,
+		event.Type,
+		events.SubjectFor(event.Type),
+		event.Data,
+	)
+	if err != nil {
+		return fmt.Errorf("insert outbox row: %w", err)
+	}
+
+	return nil
 }
 
 // Unpublish takes a video off the public surface: status returns to
@@ -495,7 +604,7 @@ func (s *VideoService) Unpublish(
 		return nil, err
 	}
 
-	unpublished, err := s.videos.Unpublish(ctx, id)
+	unpublished, err := s.unpublishVideo(ctx, id)
 	if err != nil {
 		if mapRepoError(err) == ErrNotPublishable {
 			return nil, fmt.Errorf(
@@ -504,6 +613,56 @@ func (s *VideoService) Unpublish(
 			)
 		}
 
+		return nil, mapRepoError(err)
+	}
+
+	return unpublished, nil
+}
+
+// unpublishVideo persists the unpublish transition and records a
+// matching content.unpublished outbox row in the same transaction when a
+// database pool is attached.
+func (s *VideoService) unpublishVideo(
+	ctx context.Context,
+	id uuid.UUID,
+) (*model.Video, error) {
+	if s.db != nil && s.outbox != nil {
+		tx, err := s.db.Begin(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("begin unpublish transaction: %w", err)
+		}
+		defer tx.Rollback(ctx)
+
+		unpublished, err := s.videos.UnpublishTx(ctx, tx, id)
+		if err != nil {
+			return nil, err
+		}
+
+		if err := s.recordOutboxEvent(
+			ctx, tx,
+			events.ContentUnpublished,
+			"video",
+			unpublished.ID,
+			unpublished.Title,
+		); err != nil {
+			return nil, fmt.Errorf("record unpublish outbox: %w", err)
+		}
+
+		if err := tx.Commit(ctx); err != nil {
+			return nil, fmt.Errorf("commit unpublish transaction: %w", err)
+		}
+
+		return unpublished, nil
+	}
+
+	unpublished, err := s.videos.Unpublish(ctx, id)
+	if err != nil {
+		if mapRepoError(err) == ErrNotPublishable {
+			return nil, fmt.Errorf(
+				"%w: only published videos can unpublish",
+				ErrInvalidStatus,
+			)
+		}
 		return nil, mapRepoError(err)
 	}
 

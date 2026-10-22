@@ -4,6 +4,8 @@ import (
 	"errors"
 	"os"
 	"strconv"
+
+	"github.com/Anshul563/edvance-project/packages/events"
 )
 
 type Config struct {
@@ -14,6 +16,7 @@ type Config struct {
 	JWT      JWTConfig
 	Internal InternalConfig
 	Limit    LimitConfig
+	NATS     events.NATSConfig
 }
 
 type DatabaseConfig struct{ URL string }
@@ -54,6 +57,8 @@ func Load() (Config, error) {
 			MaxBatchSize:        intOrDefault("MAX_BATCH_SIZE", 100),
 			MaxDateRangeDays:    intOrDefault("MAX_DATE_RANGE_DAYS", 90),
 		},
+
+		NATS: events.Load(),
 	}
 
 	if cfg.JWT.AccessSecret == "" {

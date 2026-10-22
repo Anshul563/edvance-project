@@ -333,6 +333,83 @@ func (r *VideoRepository) Unpublish(
 	return r.execLifecycle(ctx, query, ErrVideoInvalidPublish, id)
 }
 
+// PublishTx is the transactional variant of Publish: it updates the
+// video row using the supplied tx so the business change and an outbox
+// row can commit atomically. Callers own the tx lifecycle.
+func (r *VideoRepository) PublishTx(
+	ctx context.Context,
+	tx DBTX,
+	id uuid.UUID,
+) (*model.Video, error) {
+	query := `
+		UPDATE videos
+		SET status = 'published',
+		    visibility = CASE
+		        WHEN visibility = 'unlisted' THEN 'unlisted'
+		        ELSE 'public'
+		    END,
+		    published_at = NOW(),
+		    updated_at = NOW()
+		WHERE id = $1
+		  AND status = 'ready'
+		  AND moderation_status = 'approved'
+		RETURNING ` + videoColumns
+
+	return r.execLifecycleTx(ctx, tx, query, ErrVideoInvalidPublish, id)
+}
+
+// UnpublishTx is the transactional variant of Unpublish.
+func (r *VideoRepository) UnpublishTx(
+	ctx context.Context,
+	tx DBTX,
+	id uuid.UUID,
+) (*model.Video, error) {
+	query := `
+		UPDATE videos
+		SET status = 'ready',
+		    visibility = 'private',
+		    published_at = NULL,
+		    updated_at = NOW()
+		WHERE id = $1 AND status = 'published'
+		RETURNING ` + videoColumns
+
+	return r.execLifecycleTx(ctx, tx, query, ErrVideoInvalidPublish, id)
+}
+
+// execLifecycleTx mirrors execLifecycle but runs the query through the
+// supplied DBTX (pool or tx) so callers can join it into a transaction.
+func (r *VideoRepository) execLifecycleTx(
+	ctx context.Context,
+	tx DBTX,
+	query string,
+	stateErr error,
+	args ...any,
+) (*model.Video, error) {
+	id, ok := args[0].(uuid.UUID)
+	if !ok {
+		return nil, fmt.Errorf("update video: id must be a uuid")
+	}
+
+	video, err := scanVideo(tx.QueryRow(ctx, query, args...))
+	if err != nil {
+		if isNoRows(err) {
+			if _, lookupErr := r.FindByID(ctx, id); lookupErr != nil {
+				if errors.Is(lookupErr, ErrVideoNotFound) {
+					return nil, ErrVideoNotFound
+				}
+
+				return nil, lookupErr
+			}
+
+			return nil, stateErr
+		}
+
+		return nil, fmt.Errorf("update video: %w", err)
+	}
+
+	return video, nil
+}
+
 // UpdateMediaStatus records pipeline progress reported by the
 // video/media service through the internal API. Draft through ready are
 // editable; published and archived content is frozen so a late callback

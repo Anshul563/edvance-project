@@ -438,6 +438,22 @@ func (f *fakeVideoStore) Unpublish(
 	return cloneVideo(video), nil
 }
 
+func (f *fakeVideoStore) PublishTx(
+	_ context.Context,
+	_ repository.DBTX,
+	id uuid.UUID,
+) (*model.Video, error) {
+	return f.Publish(context.Background(), id)
+}
+
+func (f *fakeVideoStore) UnpublishTx(
+	_ context.Context,
+	_ repository.DBTX,
+	id uuid.UUID,
+) (*model.Video, error) {
+	return f.Unpublish(context.Background(), id)
+}
+
 func (f *fakeVideoStore) UpdateMediaStatus(
 	_ context.Context,
 	id uuid.UUID,
@@ -1173,6 +1189,22 @@ func (f *fakePostStore) Publish(
 	post.UpdatedAt = now
 
 	return clonePost(post), nil
+}
+
+func (f *fakePostStore) PublishTx(
+	_ context.Context,
+	_ repository.DBTX,
+	id uuid.UUID,
+) (*model.Post, error) {
+	return f.Publish(context.Background(), id)
+}
+
+func (f *fakePostStore) UnpublishTx(
+	_ context.Context,
+	_ repository.DBTX,
+	id uuid.UUID,
+) (*model.Post, error) {
+	return f.Unpublish(context.Background(), id)
 }
 
 func (f *fakePostStore) Unpublish(

@@ -1,6 +1,7 @@
 go 1.26.5
 
 use (
+	./packages/events
 	./services/admin-api
 	./services/analytics-service
 	./services/api-gateway

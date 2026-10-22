@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/Anshul563/edvance-project/packages/events"
 	"github.com/Anshul563/edvance-project/services/video-service/internal/model"
 )
 
@@ -134,6 +135,19 @@ func (s *MediaService) handleCallbackFailure(
 		ErrorMessage: message,
 	})
 
+	s.publishEvent(
+		ctx,
+		events.VideoProcessingFailed,
+		events.DefaultSchemaVersion,
+		map[string]string{
+			"media_asset_id": asset.ID.String(),
+			"job_id":         job.ID.String(),
+			"error_code":     code,
+			"error_message":  message,
+		},
+		asset.ID.String(),
+	)
+
 	return nil
 }
 
@@ -204,6 +218,19 @@ func (s *MediaService) handleCallbackSuccess(
 		DurationSeconds: logDuration(meta.DurationSeconds),
 		ThumbnailURL:    thumbnailURL,
 	})
+
+	s.publishEvent(
+		ctx,
+		events.VideoProcessingCompleted,
+		events.DefaultSchemaVersion,
+		map[string]string{
+			"media_asset_id":   asset.ID.String(),
+			"job_id":           job.ID.String(),
+			"duration_seconds": durationString(meta.DurationSeconds),
+			"thumbnail_url":    ptrString(thumbnailURL),
+		},
+		asset.ID.String(),
+	)
 
 	return nil
 }
@@ -415,4 +442,20 @@ func responseMetadata(
 	meta.Container = metadata.Container
 
 	return meta
+}
+
+// durationString formats an optional int64 duration for event payloads.
+func durationString(value *int64) string {
+	if value == nil {
+		return ""
+	}
+	return fmt.Sprintf("%d", *value)
+}
+
+// ptrString returns the string a pointer points to, or "" when nil.
+func ptrString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }

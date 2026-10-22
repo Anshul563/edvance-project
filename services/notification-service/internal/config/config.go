@@ -5,6 +5,8 @@ import (
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/Anshul563/edvance-project/packages/events"
 )
 
 type Config struct {
@@ -16,6 +18,7 @@ type Config struct {
 	Email    EmailConfig
 	Internal InternalConfig
 	Worker   WorkerConfig
+	NATS     events.NATSConfig
 }
 
 type DatabaseConfig struct {
@@ -142,6 +145,8 @@ func Load() (Config, error) {
 			Interval:    workerInterval,
 			MaxAttempts: maxAttempts,
 		},
+
+		NATS: events.Load(),
 	}
 
 	// Same shared HMAC secret as auth-service: notification-service only
